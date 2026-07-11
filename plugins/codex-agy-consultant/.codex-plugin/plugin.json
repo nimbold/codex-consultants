@@ -1,0 +1,30 @@
+{
+  "name": "codex-agy-consultant",
+  "version": "0.1.0",
+  "description": "Use Antigravity CLI as a read-only second opinion while Codex remains the primary investigator and implementer.",
+  "author": {
+    "name": "Codex Agy Consultant contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "antigravity",
+    "agy",
+    "code-review",
+    "adversarial-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Agy Consultant",
+    "shortDescription": "Read-only agy second opinion for Codex",
+    "longDescription": "Consult Antigravity CLI for bounded adversarial review while Codex independently validates findings, makes changes, and runs tests.",
+    "developerName": "Codex Agy Consultant contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use Codex Agy Consultant to challenge the current code plan."
+    ]
+  }
+}

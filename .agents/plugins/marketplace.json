@@ -1,0 +1,20 @@
+{
+  "name": "codex-agy",
+  "interface": {
+    "displayName": "Codex Agy"
+  },
+  "plugins": [
+    {
+      "name": "codex-agy-consultant",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-agy-consultant"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Agy Code Consultant"
+  short_description: "Read-only agy second opinion for Codex"
+  default_prompt: "Use $agy-consultant to challenge Codex scope before changing code."
+
+policy:
+  allow_implicit_invocation: true
