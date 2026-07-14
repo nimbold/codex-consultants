@@ -38,11 +38,11 @@ Choose one installation path per Codex home. The manual global skill and the mar
 
 ## How it works
 
-Codex first forms its own understanding. The consultant then receives a bounded task bundle containing selected files, safe repository status, and tracked diff. The wrapper invokes `agy` in an isolated accept-edits/sandbox session from an empty temporary directory; it never gives agy the repository path. Codex validates each advisory finding against the live repository before changing anything.
+Codex first forms its own understanding. The consultant then receives a bounded task bundle containing selected files, safe repository status, and, for diff consultations, the tracked diff. The wrapper invokes `agy` in an isolated plan/sandbox session with only the selected files materialized in a temporary workspace; it never gives agy the repository path. Codex validates each advisory finding against the live repository before changing anything.
 
-The wrapper fails closed on oversized bundles, sensitive paths, out-of-repository paths, timeouts, empty output, and non-zero `agy` exits. It never silently truncates context and never edits, commits, or pushes.
+The wrapper fails closed on oversized bundles, sensitive paths, out-of-repository paths, timeouts, empty output, and non-zero `agy` exits. Plan consultations omit the tracked diff and run agy in read-only plan mode. Agy receives only the supplied context files in its isolated temporary workspace, and one transient failure retry is performed within the overall timeout. It never silently truncates context and never edits, commits, or pushes.
 
-The wrapper uses `Gemini 3.5 Flash (High)` and a `120s` agy print-mode deadline by default, independent of the interactive model selected in the local agy settings. Repeat `--model` to request up to three independent, sequential opinions; for example:
+The wrapper uses `Gemini 3.5 Flash (High)`, an `80,000`-byte bundle limit, one retry, and a `120s` agy print-mode deadline by default, independent of the interactive model selected in the local agy settings. Repeat `--model` to request up to three independent, sequential opinions; for example:
 
 ```sh
 codex-agy-consult \
@@ -55,6 +55,8 @@ codex-agy-consult \
 Each model receives the same bounded bundle and its output is labeled separately. Codex compares and validates the opinions; the wrapper does not ask agy to synthesize a final decision. Override `--print-timeout` when a different latency tradeoff is intentional.
 
 Models run sequentially to avoid a burst of simultaneous requests. If one model times out or fails, successful responses are still returned and the unavailable model is reported; if all requested models fail, the consultation is inconclusive.
+
+For a concise Codex interaction, progress should be limited to a short pre-consultation update and a short result. Bundle construction, safety-limit handling, retry reasoning, prompt contents, and private chain-of-thought should not be narrated. An oversized bundle may be narrowed and retried once; an empty, timed-out, or failed retry ends the consultation unless the user explicitly requests more attempts.
 
 ## Invocation policy
 

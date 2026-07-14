@@ -9,11 +9,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
-DEFAULT_MAX_BYTES = 120_000
+DEFAULT_MAX_BYTES = 80_000
 DEFAULT_TIMEOUT_SECONDS = 300
+DEFAULT_RETRIES = 1
+RETRY_DELAY_SECONDS = 2.0
 DEFAULT_MODEL = "Gemini 3.5 Flash (High)"
 DEFAULT_PRINT_TIMEOUT = "120s"
 MAX_MODELS = 3
@@ -125,10 +128,25 @@ def build_diff(repo: Path, paths: list[Path]) -> str:
     return result.stdout or "(no textual diff; changes may be binary or untracked)"
 
 
-def build_payload(repo: Path, phase: str, task: str, max_bytes: int, extra_paths: list[str]) -> str:
-    tracked_paths = changed_paths(repo)
+def build_payload(
+    repo: Path,
+    phase: str,
+    task: str,
+    max_bytes: int,
+    extra_paths: list[str],
+) -> tuple[str, list[tuple[Path, str]]]:
     selected = read_selected_paths(repo, extra_paths)
-    diff = build_diff(repo, tracked_paths)
+    workspace_files = list(selected)
+    if phase == "plan":
+        diff = "(tracked diff omitted for plan phase; include relevant files explicitly)"
+    else:
+        tracked_paths = changed_paths(repo)
+        diff = build_diff(repo, tracked_paths)
+        selected_paths = {path for path, _ in workspace_files}
+        for path in tracked_paths:
+            if path in selected_paths or is_sensitive(path) or not path.is_file():
+                continue
+            workspace_files.append((path, path.read_text(encoding="utf-8", errors="replace")))
 
     file_sections = []
     for path, content in selected:
@@ -160,14 +178,22 @@ TRACKED DIFF:
         raise ValueError(
             f"consultation bundle is {len(encoded)} bytes, above the {max_bytes}-byte limit; narrow --path selections or raise --max-bytes deliberately"
         )
-    return payload
+    return payload, workspace_files
+
+
+def materialize_selected_files(workspace: Path, selected: list[tuple[Path, str]]) -> None:
+    """Expose only the explicitly selected files to agy tool calls."""
+    for path, content in selected:
+        target = workspace / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
 
 
 def build_command(agy: str, args: argparse.Namespace, payload: str, model: str) -> list[str]:
     command = [
         agy,
         "--mode",
-        "accept-edits",
+        "plan",
         "--sandbox",
         "--model",
         model,
@@ -213,13 +239,28 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=DEFAULT_RETRIES,
+        help=f"retry transient agy failures (default: {DEFAULT_RETRIES}; max: 2)",
+    )
     return parser.parse_args()
+
+
+def compact_diagnostic(stderr: str, limit: int = 2_000) -> str:
+    detail = stderr.strip()
+    if len(detail) <= limit:
+        return detail
+    return "..." + detail[-limit:]
 
 
 def main() -> int:
     args = parse_args()
     if args.max_bytes <= 0 or args.timeout <= 0:
         return fail("--max-bytes and --timeout must be positive")
+    if args.retries < 0 or args.retries > 2:
+        return fail("--retries must be between 0 and 2")
     try:
         models = resolve_models(args)
     except ValueError as exc:
@@ -234,7 +275,7 @@ def main() -> int:
 
     try:
         repo = find_repo_root()
-        payload = build_payload(repo, args.phase, task, args.max_bytes, args.path)
+        payload, selected = build_payload(repo, args.phase, task, args.max_bytes, args.path)
     except (OSError, RuntimeError, ValueError) as exc:
         return fail(str(exc))
 
@@ -242,34 +283,47 @@ def main() -> int:
     unavailable = []
     for model in models:
         command = build_command(agy, args, payload, model)
-        try:
-            with tempfile.TemporaryDirectory(prefix="codex-agy-consult-") as isolated_cwd:
-                result = subprocess.run(
-                    command,
-                    cwd=isolated_cwd,
-                    text=True,
-                    capture_output=True,
-                    timeout=args.timeout,
-                    check=False,
-                    env=os.environ.copy(),
-                )
-        except subprocess.TimeoutExpired:
-            unavailable.append(f"{model}: timed out after {args.timeout} seconds")
-            continue
-        except OSError as exc:
-            unavailable.append(f"{model}: could not start agy: {exc}")
-            continue
+        deadline = time.monotonic() + args.timeout
+        model_failure = None
+        for attempt in range(args.retries + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                model_failure = f"timed out after {args.timeout} seconds"
+                break
+            try:
+                with tempfile.TemporaryDirectory(prefix="codex-agy-consult-") as isolated_cwd:
+                    materialize_selected_files(Path(isolated_cwd), selected)
+                    result = subprocess.run(
+                        command,
+                        cwd=isolated_cwd,
+                        text=True,
+                        capture_output=True,
+                        timeout=remaining,
+                        check=False,
+                        env=os.environ.copy(),
+                    )
+            except subprocess.TimeoutExpired:
+                model_failure = f"timed out after {args.timeout} seconds"
+            except OSError as exc:
+                model_failure = f"could not start agy: {exc}"
+            else:
+                if result.returncode != 0:
+                    detail = compact_diagnostic(result.stderr) or "agy returned no diagnostic"
+                    model_failure = f"exited with status {result.returncode}: {detail}"
+                elif not result.stdout.strip():
+                    detail = compact_diagnostic(result.stderr)
+                    suffix = f" Diagnostic: {detail}" if detail else ""
+                    model_failure = f"returned an empty consultation response.{suffix}"
+                else:
+                    responses.append((model, result.stdout, compact_diagnostic(result.stderr)))
+                    model_failure = None
+                    break
 
-        if result.returncode != 0:
-            detail = result.stderr.strip() or "agy returned no diagnostic"
-            unavailable.append(f"{model}: exited with status {result.returncode}: {detail}")
-            continue
-        if not result.stdout.strip():
-            detail = result.stderr.strip()
-            suffix = f" Diagnostic: {detail}" if detail else ""
-            unavailable.append(f"{model}: returned an empty consultation response.{suffix}")
-            continue
-        responses.append((model, result.stdout, result.stderr.strip()))
+            if attempt < args.retries:
+                time.sleep(min(RETRY_DELAY_SECONDS, max(0.0, deadline - time.monotonic())))
+
+        if model_failure:
+            unavailable.append(f"{model}: {model_failure}")
 
     if not responses:
         detail = "; ".join(unavailable) or "no response"

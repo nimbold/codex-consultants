@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 from argparse import Namespace
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def main() -> int:
     assert module.build_command("/usr/local/bin/agy", args, "payload", "Gemini 3.5 Flash (High)") == [
         "/usr/local/bin/agy",
         "--mode",
-        "accept-edits",
+        "plan",
         "--sandbox",
         "--model",
         "Gemini 3.5 Flash (High)",
@@ -48,6 +49,15 @@ def main() -> int:
     args.agent = "custom-agent"
     command = module.build_command("agy", args, "payload", args.models[0])
     assert command[-4:] == ["--agent", "custom-agent", "--print", "payload"]
+
+    payload, selected = module.build_payload(ROOT, "plan", "test task", 80_000, ["README.md"])
+    assert "tracked diff omitted for plan phase" in payload
+    assert selected[0][0] == Path("README.md")
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-materialize-test-") as temp:
+        workspace = Path(temp)
+        module.materialize_selected_files(workspace, [(Path("nested/context.txt"), "context")])
+        assert (workspace / "nested" / "context.txt").read_text(encoding="utf-8") == "context"
 
     print("consult command smoke test: ok")
     return 0
