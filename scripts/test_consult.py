@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import tempfile
 from argparse import Namespace
 from pathlib import Path
@@ -22,6 +23,10 @@ def load_module():
     return module
 
 
+def git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+
 def main() -> int:
     module = load_module()
     args = Namespace(
@@ -29,17 +34,14 @@ def main() -> int:
         print_timeout=module.DEFAULT_PRINT_TIMEOUT,
         agent=None,
     )
-    assert module.resolve_models(args) == [
-        "Gemini 3.1 Pro (High)",
-        "Gemini 3.5 Flash (High)",
-    ]
-    assert module.build_command("/usr/local/bin/agy", args, "payload", "Gemini 3.1 Pro (High)") == [
+    assert module.resolve_models(args) == ["Gemini 3.5 Flash (High)"]
+    assert module.build_command("/usr/local/bin/agy", args, "payload", "Gemini 3.5 Flash (High)") == [
         "/usr/local/bin/agy",
         "--mode",
         "plan",
         "--sandbox",
         "--model",
-        "Gemini 3.1 Pro (High)",
+        "Gemini 3.5 Flash (High)",
         "--print-timeout",
         "120s",
         "--print",
@@ -68,13 +70,56 @@ def main() -> int:
     fallback = module.compact_report("A long unstructured report\nwith extra whitespace.")
     assert fallback.startswith("UNSTRUCTURED_REPORT:")
 
+    notes = []
+    context = module.select_context_files(
+        [
+            (Path("package-lock.json"), "lockfile"),
+            (Path("src/monolith.rs"), "x" * (module.MAX_FULL_CONTEXT_FILE_BYTES + 1)),
+            (Path("package.json"), "{\"name\": \"test\"}"),
+        ],
+        {Path("package-lock.json"), Path("src/monolith.rs"), Path("package.json")},
+        10_000,
+        notes,
+    )
+    assert [path for path, _ in context] == [Path("package.json")]
+    assert any("package-lock.json" in note and "lockfile" in note for note in notes)
+    assert any("monolith.rs" in note and str(module.MAX_FULL_CONTEXT_FILE_BYTES) in note for note in notes)
+
     args.agent = "custom-agent"
     command = module.build_command("agy", args, "payload", args.models[0])
     assert command[-4:] == ["--agent", "custom-agent", "--print", "payload"]
 
     payload, selected = module.build_payload(ROOT, "plan", "test task", 80_000, ["README.md"])
     assert "tracked diff omitted for plan phase" in payload
+    assert "CONTEXT PREFLIGHT NOTES:" in payload
     assert selected[0][0] == Path("README.md")
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-preflight-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.com")
+        git(repo, "config", "user.name", "Test")
+        (repo / "package.json").write_text('{"name":"test"}\n', encoding="utf-8")
+        (repo / "package-lock.json").write_text("lock\n", encoding="utf-8")
+        (repo / "src").mkdir()
+        (repo / "src" / "monolith.rs").write_text("old\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "base")
+        (repo / "package.json").write_text('{"name":"test","version":"2"}\n', encoding="utf-8")
+        (repo / "package-lock.json").write_text("lock\n" * 10_000, encoding="utf-8")
+        (repo / "src" / "monolith.rs").write_text("changed\n" * 20_000, encoding="utf-8")
+        payload, selected = module.build_payload(
+            repo,
+            "diff",
+            "review the dependency update",
+            80_000,
+            ["package.json", "package-lock.json", "src/monolith.rs"],
+        )
+        assert len(payload.encode("utf-8")) <= 80_000
+        assert [path for path, _ in selected] == [Path("package.json")]
+        assert "package-lock.json: full lockfile omitted by preflight" in payload
+        assert "package-lock.json: lockfile diff omitted by preflight" in payload
+        assert "src/monolith.rs: full file omitted by preflight" in payload
 
     with tempfile.TemporaryDirectory(prefix="codex-agy-materialize-test-") as temp:
         workspace = Path(temp)

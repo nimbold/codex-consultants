@@ -18,11 +18,34 @@ DEFAULT_MAX_BYTES = 80_000
 DEFAULT_TIMEOUT_SECONDS = 300
 DEFAULT_RETRIES = 1
 RETRY_DELAY_SECONDS = 2.0
-DEFAULT_MODELS = ("Gemini 3.1 Pro (High)", "Gemini 3.5 Flash (High)")
+DEFAULT_MODEL = "Gemini 3.5 Flash (High)"
 DEFAULT_PRINT_TIMEOUT = "120s"
 MAX_MODELS = 2
 MAX_FINDINGS = 4
 MAX_REPORT_CHARS = 6_000
+MAX_FULL_CONTEXT_FILE_BYTES = 24_000
+CONTEXT_BUDGET_RATIO = 0.35
+DIFF_BUDGET_RATIO = 0.45
+DIFF_CONTEXT_LINES = 20
+LOCKFILE_NAMES = {
+    "cargo.lock",
+    "composer.lock",
+    "go.sum",
+    "gemfile.lock",
+    "npm-shrinkwrap.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "yarn.lock",
+    "bun.lockb",
+}
+MANIFEST_NAMES = {
+    "cargo.toml",
+    "manifest.json",
+    "package.json",
+    "pyproject.toml",
+    "tauri.conf.json",
+}
 SENSITIVE_NAMES = {
     ".env",
     ".env.local",
@@ -75,6 +98,27 @@ def is_sensitive(path: Path) -> bool:
     return name in SENSITIVE_NAMES or name.endswith(SENSITIVE_SUFFIXES)
 
 
+def is_lockfile(path: Path) -> bool:
+    return path.name.lower() in LOCKFILE_NAMES
+
+
+def utf8_bytes(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def path_priority(path: Path, explicit_paths: set[Path]) -> int:
+    """Prefer explicit contract files and manifests when the bundle needs pruning."""
+    score = 1_000 if path in explicit_paths else 0
+    name = path.name.lower()
+    if name in MANIFEST_NAMES:
+        score += 300
+    if len(path.parts) >= 2 and path.parts[0] == ".github" and path.parts[1] == "workflows":
+        score += 200
+    if path.suffix.lower() in {".toml", ".json", ".yaml", ".yml", ".rs", ".ts", ".tsx", ".js"}:
+        score += 50
+    return score
+
+
 def safe_status(repo: Path) -> str:
     result = run_git(repo, ["status", "--short", "--untracked-files=all"])
     if result.returncode != 0:
@@ -110,25 +154,107 @@ def read_selected_paths(repo: Path, raw_paths: list[str]) -> list[tuple[Path, st
         path = relative_path(repo, raw)
         if is_sensitive(path):
             raise ValueError(f"refusing to include sensitive path: {path}")
-        if not path.is_file():
+        absolute = (repo / path).resolve()
+        if not absolute.is_file():
             raise ValueError(f"selected path is not a regular file: {path}")
         if path in seen:
             continue
         seen.add(path)
-        selected.append((path, path.read_text(encoding="utf-8", errors="replace")))
+        selected.append((path, absolute.read_text(encoding="utf-8", errors="replace")))
     return selected
 
 
-def build_diff(repo: Path, paths: list[Path]) -> str:
-    if not paths:
-        return "(no safe tracked diff supplied; include relevant files with --path)"
+def build_path_diff(repo: Path, path: Path, unified: int = DIFF_CONTEXT_LINES) -> str:
     result = run_git(
         repo,
-        ["diff", "--no-ext-diff", "--no-textconv", "--unified=60", "HEAD", "--", *map(str, paths)],
+        [
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            f"--unified={unified}",
+            "HEAD",
+            "--",
+            str(path),
+        ],
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "git diff failed")
-    return result.stdout or "(no textual diff; changes may be binary or untracked)"
+        raise RuntimeError(result.stderr.strip() or f"git diff failed for {path}")
+    return result.stdout
+
+
+def file_section(path: Path, content: str) -> str:
+    return f"--- BEGIN FILE {path} ---\n{content}\n--- END FILE {path} ---"
+
+
+def select_context_files(
+    selected: list[tuple[Path, str]],
+    explicit_paths: set[Path],
+    budget: int,
+    notes: list[str],
+) -> list[tuple[Path, str]]:
+    candidates = []
+    for index, (path, content) in enumerate(selected):
+        if is_lockfile(path):
+            notes.append(f"{path}: full lockfile omitted by preflight")
+            continue
+        size = utf8_bytes(content)
+        if size > MAX_FULL_CONTEXT_FILE_BYTES:
+            notes.append(
+                f"{path}: full file omitted by preflight ({size} bytes; limit {MAX_FULL_CONTEXT_FILE_BYTES}); use a narrower symbol/path"
+            )
+            continue
+        candidates.append((path_priority(path, explicit_paths), index, path, content))
+
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    chosen = []
+    used = 0
+    for _, _, path, content in candidates:
+        cost = utf8_bytes(file_section(path, content))
+        if used + cost > budget:
+            notes.append(f"{path}: omitted by preflight context budget")
+            continue
+        chosen.append((path, content))
+        used += cost
+    chosen.sort(key=lambda item: next(index for index, candidate in enumerate(selected) if candidate[0] == item[0]))
+    return chosen
+
+
+def select_diff(
+    repo: Path,
+    tracked_paths: list[Path],
+    explicit_paths: set[Path],
+    budget: int,
+    notes: list[str],
+) -> str:
+    candidates = []
+    for path in tracked_paths:
+        if is_lockfile(path):
+            notes.append(f"{path}: lockfile diff omitted by preflight")
+            continue
+        diff = build_path_diff(repo, path, DIFF_CONTEXT_LINES)
+        if not diff:
+            continue
+        candidates.append((path_priority(path, explicit_paths), str(path), path, diff))
+
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    chosen = []
+    used = 0
+    for _, _, path, diff in candidates:
+        size = utf8_bytes(diff)
+        if used + size <= budget:
+            chosen.append(diff)
+            used += size
+            continue
+
+        compact_diff = build_path_diff(repo, path, unified=0)
+        compact_size = utf8_bytes(compact_diff)
+        if compact_diff and used + compact_size <= budget:
+            chosen.append(compact_diff)
+            used += compact_size
+        else:
+            notes.append(f"{path}: diff omitted by preflight diff budget")
+
+    return "\n\n".join(chosen) or "(no safe tracked diff supplied after preflight)"
 
 
 def build_payload(
@@ -138,23 +264,27 @@ def build_payload(
     max_bytes: int,
     extra_paths: list[str],
 ) -> tuple[str, list[tuple[Path, str]]]:
+    repo = repo.resolve()
     selected = read_selected_paths(repo, extra_paths)
-    workspace_files = list(selected)
+    explicit_paths = {path for path, _ in selected}
+    notes = []
+    context_budget = int(max_bytes * (0.70 if phase == "plan" else CONTEXT_BUDGET_RATIO))
+    context_files = select_context_files(selected, explicit_paths, context_budget, notes)
     if phase == "plan":
         diff = "(tracked diff omitted for plan phase; include relevant files explicitly)"
     else:
         tracked_paths = changed_paths(repo)
-        diff = build_diff(repo, tracked_paths)
-        selected_paths = {path for path, _ in workspace_files}
-        for path in tracked_paths:
-            if path in selected_paths or is_sensitive(path) or not path.is_file():
-                continue
-            workspace_files.append((path, path.read_text(encoding="utf-8", errors="replace")))
+        diff = select_diff(
+            repo,
+            tracked_paths,
+            explicit_paths,
+            int(max_bytes * DIFF_BUDGET_RATIO),
+            notes,
+        )
 
-    file_sections = []
-    for path, content in selected:
-        file_sections.append(f"--- BEGIN FILE {path} ---\n{content}\n--- END FILE {path} ---")
+    file_sections = [file_section(path, content) for path, content in context_files]
     files = "\n\n".join(file_sections) or "(no additional files supplied)"
+    preflight_notes = "\n".join(f"- {note}" for note in notes) or "(none)"
 
     payload = f"""You are a read-only code consultant advising Codex.
 
@@ -177,6 +307,9 @@ REPOSITORY STATUS:
 SELECTED CONTEXT FILES:
 {files}
 
+CONTEXT PREFLIGHT NOTES:
+{preflight_notes}
+
 TRACKED DIFF:
 {diff}
 """
@@ -185,7 +318,7 @@ TRACKED DIFF:
         raise ValueError(
             f"consultation bundle is {len(encoded)} bytes, above the {max_bytes}-byte limit; narrow --path selections or raise --max-bytes deliberately"
         )
-    return payload, workspace_files
+    return payload, context_files
 
 
 def materialize_selected_files(workspace: Path, selected: list[tuple[Path, str]]) -> None:
@@ -214,7 +347,7 @@ def build_command(agy: str, args: argparse.Namespace, payload: str, model: str) 
 
 
 def resolve_models(args: argparse.Namespace) -> list[str]:
-    requested = args.models or list(DEFAULT_MODELS)
+    requested = args.models or [DEFAULT_MODEL]
     models = []
     for raw_model in requested:
         model = raw_model.strip()
@@ -237,7 +370,7 @@ def parse_args() -> argparse.Namespace:
         "--model",
         dest="models",
         action="append",
-        help=f"agy model label; repeat for independent opinions (default: {', '.join(DEFAULT_MODELS)}; max: {MAX_MODELS})",
+        help=f"agy model label; repeat for independent opinions (default: {DEFAULT_MODEL}; max: {MAX_MODELS})",
     )
     parser.add_argument(
         "--print-timeout",

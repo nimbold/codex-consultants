@@ -1,6 +1,6 @@
 {
   "name": "codex-agy-consultant",
-  "version": "0.1.0+codex.20260714145916",
+  "version": "0.1.0+codex.20260714213604",
   "description": "Use Antigravity CLI as a read-only second opinion while Codex remains the primary investigator and implementer.",
   "author": {
     "name": "Codex Agy Consultant contributors"

@@ -45,11 +45,12 @@ def main() -> int:
         assert (launcher_dir / "codex-agy-consult").is_file()
         installed_skill = (codex_home / "skills" / "agy-consultant" / "SKILL.md").read_text(encoding="utf-8")
         assert "Keep progress concise" in installed_skill
-        assert "retry once" in installed_skill
+        assert "one transient retry" in installed_skill
         assert "80,000-byte bundle limit" in installed_skill
         assert "temporary workspace containing only the supplied context files" in installed_skill
-        assert "two independent" in installed_skill
+        assert "Gemini 3.5 Flash (High)" in installed_skill
         assert "compact report" in installed_skill
+        assert "preflights" in installed_skill
         guidance = (codex_home / "AGENTS.md").read_text(encoding="utf-8")
         assert "codex-agy-consultant:start" in guidance
         assert "explicit opt-in second opinion" in guidance

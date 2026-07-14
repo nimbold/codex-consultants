@@ -17,7 +17,7 @@ This is an explicit opt-in skill. Do not invoke it implicitly; use it only when 
 - Never ask agy to edit the working tree, commit, push, or make the final decision.
 - Never copy an agy patch blindly. Translate accepted advice into a Codex-owned change.
 - Keep the consultation bounded to the task, relevant files, and diff. Do not send secrets, cookies, tokens, `.env` files, private keys, databases, or unrelated personal data.
-- The wrapper defaults to two independent sequential passes: `Gemini 3.1 Pro (High)` and `Gemini 3.5 Flash (High)`. It uses a 120-second agy print deadline, an 80,000-byte bundle limit, and one transient retry per model. Use `--model` to select one or two models, or use `--print-timeout`, `--max-bytes`, or `--retries` when a different tradeoff is intentional.
+- The wrapper defaults to one pass with `Gemini 3.5 Flash (High)`. It uses a 120-second agy print deadline, an 80,000-byte bundle limit, and one transient retry. Repeat `--model` for one explicit second opinion, or use `--print-timeout`, `--max-bytes`, or `--retries` when a different tradeoff is intentional.
 - Each pass must return a compact report with at most four findings. The wrapper keeps only the report, finding, uncertainty, and no-finding lines and caps the result before it reaches Codex, so independent review does not expand Codex's context unnecessarily.
 
 ## When to consult
@@ -30,7 +30,7 @@ This is an explicit opt-in skill. Do not invoke it implicitly; use it only when 
 
 1. Inspect the live repository and establish Codex's own initial understanding.
 2. Choose `plan` for scope/architecture consultation or `diff` for review of an implemented change.
-3. Select only relevant context files with repeated `--path` arguments. In `plan` phase the wrapper omits the tracked diff to avoid bundling unrelated lockfiles; in `diff` phase it includes safe tracked changes and fails instead of truncating an oversized bundle.
+3. Select only relevant context files with repeated `--path` arguments. The wrapper preflights both phases: full lockfiles are omitted, oversized full files are left out with an explicit context note, and diff mode keeps only bounded relevant hunks instead of bundling every lockfile and monolithic file.
 4. Invoke `codex-agy-consult` when the manual installer has installed it. When using the automatic plugin path without the launcher, invoke the bundled `scripts/agy_consult.py` from this skill directory directly. For example:
 
    ```sh
@@ -49,7 +49,7 @@ This is an explicit opt-in skill. Do not invoke it implicitly; use it only when 
 
 - Keep progress concise: one short update before the consultation and one short result after it completes.
 - Do not narrate bundle construction, token or safety-limit details, retry reasoning, prompt contents, or private chain-of-thought in visible updates. Summarize only the observable outcome and the decision.
-- If agy rejects an oversized bundle, narrow the context and retry once. If that retry is empty, times out, or exits non-zero, stop the consultation and continue ordinary Codex work; do not perform additional retries or add another model unless the user explicitly asks.
+- The wrapper preflights and narrows oversized context before invoking agy. If the remaining bundle still cannot fit, report the omitted paths and continue ordinary Codex work; do not add another model unless the user explicitly asks.
 - Do not paste the full consultation prompt or command output unless the user asks for it.
 
 ## Consultation prompt requirements
@@ -65,7 +65,7 @@ This is an explicit opt-in skill. Do not invoke it implicitly; use it only when 
 - The wrapper invokes `agy` in `plan` mode with `--sandbox` from a temporary workspace containing only the supplied context files; the isolated workspace keeps tool activity away from the real worktree while preventing missing-file loops for supplied context.
 - Do not add `--dangerously-skip-permissions` or `--add-dir` to the consultation command.
 - An empty response, non-zero exit, timeout, or oversized bundle is an unavailable/inconclusive consultation, not evidence.
-- Do not silently truncate prompts or diffs. Narrow the selected paths and retry.
+- Do not silently truncate prompts or diffs. Preflight omissions must be listed in the supplied context notes, and Codex must validate them against the live repository.
 - Do not let a consultation failure block ordinary Codex work unless the user explicitly made consultation a required gate.
 
 The deterministic bundle-and-run implementation is in [scripts/agy_consult.py](scripts/agy_consult.py). The repository installer creates the optional global `codex-agy-consult` launcher; the plugin itself does not assume a fixed install path.
