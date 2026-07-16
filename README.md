@@ -1,6 +1,8 @@
 # Codex Consultants
 
-Use Agy (Antigravity CLI) or Hermes CLI as bounded, read-only second opinions while Codex remains the primary investigator, implementer, tester, and decision-maker.
+A Codex plugin for bounded, read-only Agy and Hermes code-review second opinions, with NVIDIA NIM and MiniMax M3 support.
+
+Codex remains the primary investigator, implementer, tester, and decision-maker.
 
 The plugin does not bundle either client. Install and authenticate the client you want separately, then keep it on `PATH`. Hermes is configured for NVIDIA NIM with MiniMax M3 by default.
 
