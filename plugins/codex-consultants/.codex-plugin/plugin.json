@@ -1,6 +1,6 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260716100918",
+  "version": "0.1.0+codex.20260716102044",
   "description": "Use bounded, read-only Agy or Hermes consultations while Codex remains the primary investigator and implementer.",
   "author": {
     "name": "Codex Consultants contributors"

@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "plugins" / "codex-consultants" / "skills" / "agy-consultant" / "scripts" / "agy_consult.py"
+SCRIPT = ROOT / "plugins" / "codex-consultants" / "skills" / "agy-consult" / "scripts" / "agy_consult.py"
 
 
 def load_module():

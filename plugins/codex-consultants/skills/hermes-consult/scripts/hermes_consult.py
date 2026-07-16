@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
-AGY_SCRIPT = PLUGIN_ROOT / "skills" / "agy-consultant" / "scripts" / "agy_consult.py"
+AGY_SCRIPT = PLUGIN_ROOT / "skills" / "agy-consult" / "scripts" / "agy_consult.py"
 DEFAULT_MAX_BYTES = 80_000
 DEFAULT_TIMEOUT_SECONDS = 300
 DEFAULT_RETRIES = 1

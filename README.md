@@ -24,6 +24,8 @@ codex plugin add codex-consultants@codex-consultants
 
 Start a new Codex thread after installation so the skills are rediscovered. The plugin does not install, log in to, or configure Agy, Hermes, or NVIDIA.
 
+Use either the plugin installation or the manual installer for a given `CODEX_HOME`, not both. If upgrading from the old repository, remove its stale registration once with `codex plugin remove codex-agy-consultant@codex-agy` before installing this plugin.
+
 ## Skill commands
 
 Use `/skills` to browse the installed skills, or mention these concise skill names directly:
@@ -31,13 +33,13 @@ Use `/skills` to browse the installed skills, or mention these concise skill nam
 - `$agy-consult` — bounded Agy second opinion using the existing Gemini configuration.
 - `$hermes-consult` — bounded Hermes second opinion using NVIDIA NIM and `minimaxai/minimax-m3`.
 
-`$agy-consultant` remains available as a compatibility name for existing users. Codex's portable plugin interface uses skills (`$name`); arbitrary `/agy-...` and `/hermes-...` slash commands are not currently a distributable plugin surface. The old local `/prompts:name` mechanism is local-only and deprecated, so it is not used here.
+Codex's portable plugin interface uses skills (`$name`); arbitrary `/agy-...` and `/hermes-...` slash commands are not currently a distributable plugin surface. The old local `/prompts:name` mechanism is local-only and deprecated, so it is not used here.
 
 Both skills are explicit-only. They do not run automatically, and Codex must independently verify every actionable suggestion.
 
 ## Manual installation
 
-The optional installer adds the concise skills, the legacy Agy skill, and command-line launchers:
+The optional installer adds the concise Agy and Hermes skills and command-line launchers:
 
 ```sh
 git clone https://github.com/nimbold/codex-consultants.git
@@ -68,7 +70,7 @@ Run the local checks from the repository root:
 
 ```sh
 python3 -m py_compile \
-  plugins/codex-consultants/skills/agy-consultant/scripts/agy_consult.py \
+  plugins/codex-consultants/skills/agy-consult/scripts/agy_consult.py \
   plugins/codex-consultants/skills/hermes-consult/scripts/hermes_consult.py \
   scripts/install.py
 python3 scripts/test_consult.py

@@ -15,7 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = REPO_ROOT / "plugins" / "codex-consultants"
 SKILL_SOURCES = {
     "agy-consult": PLUGIN_ROOT / "skills" / "agy-consult",
-    "agy-consultant": PLUGIN_ROOT / "skills" / "agy-consultant",
     "hermes-consult": PLUGIN_ROOT / "skills" / "hermes-consult",
 }
 GUIDANCE_START = "<!-- codex-consultants:start -->"
@@ -172,7 +171,7 @@ def main() -> int:
         install_skills(codex_home, args.force, args.dry_run)
         install_launcher(
             launcher_dir,
-            "agy-consultant",
+            "agy-consult",
             "agy_consult.py",
             "codex-agy-consult",
             args.force,

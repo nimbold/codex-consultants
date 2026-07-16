@@ -42,14 +42,13 @@ def main() -> int:
         )
         assert installed.returncode == 0, installed.stderr
         assert (codex_home / "skills" / "agy-consult" / "SKILL.md").is_file()
-        assert (codex_home / "skills" / "agy-consultant" / "SKILL.md").is_file()
         assert (codex_home / "skills" / "hermes-consult" / "SKILL.md").is_file()
         assert (launcher_dir / "codex-agy-consult").is_file()
         assert (launcher_dir / "codex-hermes-consult").is_file()
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")
         hermes_skill = (codex_home / "skills" / "hermes-consult" / "SKILL.md").read_text(encoding="utf-8")
         assert "Explicit invocation only" in installed_skill
-        assert "$agy-consultant" in installed_skill
+        assert "$agy-consult" in installed_skill
         assert "$hermes-consult" in hermes_skill
         assert "minimaxai/minimax-m3" in hermes_skill
         guidance = (codex_home / "AGENTS.md").read_text(encoding="utf-8")
@@ -68,7 +67,6 @@ def main() -> int:
         )
         assert replaced.returncode == 0, replaced.stderr
         assert list((codex_home / "skill-backups").glob("agy-consult.backup-*"))
-        assert not list((codex_home / "skills").glob("agy-consultant.backup-*"))
         assert list(launcher_dir.glob("codex-agy-consult.backup-*"))
         assert list((codex_home / "skill-backups").glob("hermes-consult.backup-*"))
         assert list(launcher_dir.glob("codex-hermes-consult.backup-*"))
