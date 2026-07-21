@@ -31,7 +31,7 @@ def main() -> int:
         thinking_mode=None,
         rpm_limit=module.DEFAULT_RPM_LIMIT,
     )
-    assert module.resolve_models(args) == ["minimaxai/minimax-m3"]
+    assert module.resolve_models(args) == ["thinkingmachines/inkling"]
     assert module.DEFAULT_RETRIES == 0
     assert module.DEFAULT_RPM_LIMIT == 39
     assert module.rate_wait_seconds([], 100.0) == 0.0
@@ -63,8 +63,16 @@ def main() -> int:
     disabled = module.build_isolated_config("minimaxai/minimax-m3", "disabled")
     assert disabled["providers"][module.ISOLATED_PROVIDER]["extra_body"]["chat_template_kwargs"]["thinking_mode"] == "disabled"
 
+    inkling = module.build_isolated_config(module.DEFAULT_MODEL, "enabled")
+    assert inkling["agent"]["reasoning_effort"] == "max"
+    assert "extra_body" not in inkling["providers"][module.ISOLATED_PROVIDER]
+    assert module.resolve_nvidia_reasoning_effort(module.DEFAULT_MODEL, "ultra") == "max"
+    assert module.resolve_nvidia_reasoning_effort("z-ai/glm-5.2", "high") == "high"
+    assert module.resolve_nvidia_reasoning_effort("z-ai/glm-5.2", "max") == "max"
+
     other_model = module.build_isolated_config("other/model", "enabled")
     assert "extra_body" not in other_model["providers"][module.ISOLATED_PROVIDER]
+    assert "reasoning_effort" not in other_model["agent"]
 
     with TemporaryDirectory() as temporary_directory:
         state_path = Path(temporary_directory) / "hermes-rpm.json"

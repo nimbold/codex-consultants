@@ -34,14 +34,14 @@ def main() -> int:
         print_timeout=module.DEFAULT_PRINT_TIMEOUT,
         agent=None,
     )
-    assert module.resolve_models(args) == ["Gemini 3.5 Flash (High)"]
-    assert module.build_command("/usr/local/bin/agy", args, "payload", "Gemini 3.5 Flash (High)") == [
+    assert module.resolve_models(args) == ["Gemini 3.6 Flash (High)"]
+    assert module.build_command("/usr/local/bin/agy", args, "payload", "Gemini 3.6 Flash (High)") == [
         "/usr/local/bin/agy",
         "--mode",
         "plan",
         "--sandbox",
         "--model",
-        "Gemini 3.5 Flash (High)",
+        "Gemini 3.6 Flash (High)",
         "--print-timeout",
         "120s",
         "--print",

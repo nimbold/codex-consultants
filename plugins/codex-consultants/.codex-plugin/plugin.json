@@ -1,7 +1,7 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260716114842",
-  "description": "Use bounded, read-only Agy or Hermes consultations while Codex remains the primary investigator and implementer.",
+  "version": "0.1.0+codex.20260721160529",
+  "description": "Use bounded, read-only Agy, Hermes, or OpenCode consultations while Codex remains the primary investigator and implementer, including the /opencode command.",
   "author": {
     "name": "Codex Consultants contributors"
   },
@@ -12,21 +12,26 @@
     "antigravity",
     "hermes",
     "nvidia",
+    "opencode",
+    "open-code",
+    "deepseek",
+    "zen",
     "code-review",
     "adversarial-review"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Consultants",
-    "shortDescription": "Read-only Agy and Hermes opinions for Codex",
-    "longDescription": "Consult Antigravity or Hermes with NVIDIA NIM for bounded adversarial review while Codex independently validates findings, makes changes, and runs tests.",
+    "shortDescription": "Read-only Agy, Hermes, and OpenCode opinions for Codex",
+    "longDescription": "Consult Antigravity with Gemini 3.6 Flash High by default, Hermes with NVIDIA NIM, or OpenCode CLI with OpenCode Zen free models through the /opencode command for bounded adversarial review while Codex independently validates findings, makes changes, and runs tests.",
     "developerName": "Codex Consultants contributors",
     "category": "Developer Tools",
     "capabilities": [
       "Read"
     ],
     "defaultPrompt": [
-      "Use Agy or Hermes as a bounded read-only second opinion while Codex remains primary."
+      "Use Agy, Hermes, or OpenCode as a bounded read-only second opinion while Codex remains primary.",
+      "Run /opencode for the default free OpenCode review."
     ]
   }
 }

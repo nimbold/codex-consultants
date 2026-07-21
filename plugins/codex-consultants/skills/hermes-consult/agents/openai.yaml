@@ -1,6 +1,6 @@
 interface:
   display_name: "Hermes Consultant"
-  short_description: "Read-only Hermes M3 second opinion for Codex"
+  short_description: "Read-only Hermes Inkling second opinion for Codex"
   default_prompt: "Use $hermes-consult to challenge Codex scope before changing code."
 
 policy:

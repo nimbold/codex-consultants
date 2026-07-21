@@ -1,0 +1,7 @@
+interface:
+  display_name: "OpenCode Consultant"
+  short_description: "Read-only OpenCode free-model opinion for Codex"
+  default_prompt: "Use $opencode-consult to challenge Codex scope before changing code."
+
+policy:
+  allow_implicit_invocation: false

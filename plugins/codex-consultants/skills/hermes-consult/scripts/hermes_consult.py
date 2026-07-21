@@ -26,8 +26,8 @@ DEFAULT_TIMEOUT_SECONDS = 300
 DEFAULT_RETRIES = 0
 RETRY_DELAY_SECONDS = 2.0
 DEFAULT_PROVIDER = "nvidia"
-DEFAULT_MODEL = "minimaxai/minimax-m3"
-DEFAULT_REASONING_EFFORT = "high"
+DEFAULT_MODEL = "thinkingmachines/inkling"
+DEFAULT_REASONING_EFFORT = "max"
 DEFAULT_THINKING_MODE = "enabled"
 THINKING_MODES = ("enabled", "disabled", "adaptive")
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
@@ -66,6 +66,35 @@ def is_minimax_m3(model: str) -> bool:
     return normalized == "minimax-m3" or normalized.endswith("/minimax-m3")
 
 
+def is_inkling(model: str) -> bool:
+    """Return True for Thinking Machines' Inkling model id."""
+    normalized = model.strip().lower()
+    return normalized == "inkling" or normalized.endswith("/inkling")
+
+
+def is_glm_5_2(model: str) -> bool:
+    """Return True for the GLM 5.2 model id exposed by NVIDIA NIM."""
+    normalized = model.strip().lower()
+    return normalized == "glm-5.2" or normalized.endswith("/glm-5.2")
+
+
+def resolve_nvidia_reasoning_effort(model: str, effort: str) -> str | None:
+    """Map Hermes effort levels to model-specific NVIDIA wire values.
+
+    Inkling accepts the full documented ``none`` through ``max`` vocabulary.
+    GLM 5.2 exposes a simpler native high/max mapping. Unknown NVIDIA models
+    are left untouched so this wrapper does not send an unsupported field.
+    """
+    normalized = (effort or DEFAULT_REASONING_EFFORT).strip().lower()
+    if is_inkling(model):
+        return "max" if normalized == "ultra" else normalized
+    if is_glm_5_2(model):
+        if normalized == "none":
+            return "none"
+        return "max" if normalized in {"xhigh", "max", "ultra"} else "high"
+    return None
+
+
 def resolve_thinking_mode(args: argparse.Namespace) -> str:
     """Map Hermes' effort vocabulary onto MiniMax M3's three wire modes."""
     explicit = getattr(args, "thinking_mode", None)
@@ -79,7 +108,11 @@ def uses_isolated_nvidia_route(args: argparse.Namespace, model: str) -> bool:
     return args.provider.strip().lower() == DEFAULT_PROVIDER
 
 
-def build_isolated_config(model: str, thinking_mode: str) -> dict:
+def build_isolated_config(
+    model: str,
+    thinking_mode: str,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+) -> dict:
     """Build the only Hermes config visible to an isolated NVIDIA invocation."""
     provider_config = {
         "api": NVIDIA_BASE_URL,
@@ -93,6 +126,15 @@ def build_isolated_config(model: str, thinking_mode: str) -> dict:
                 "thinking_mode": thinking_mode,
             },
         }
+    agent_config = {
+        "max_turns": 1,
+        "api_max_retries": 0,
+    }
+    wire_effort = resolve_nvidia_reasoning_effort(model, reasoning_effort)
+    if wire_effort is not None:
+        # Hermes' custom OpenAI-compatible provider emits this as the
+        # top-level reasoning_effort request field.
+        agent_config["reasoning_effort"] = wire_effort
     return {
         "model": {
             "default": model,
@@ -100,10 +142,7 @@ def build_isolated_config(model: str, thinking_mode: str) -> dict:
         },
         # One Hermes turn and one app-level attempt make the wrapper's
         # per-invocation request count bounded for the RPM limiter below.
-        "agent": {
-            "max_turns": 1,
-            "api_max_retries": 0,
-        },
+        "agent": agent_config,
         "providers": {
             ISOLATED_PROVIDER: provider_config,
         },
@@ -251,11 +290,12 @@ def acquire_rate_slot(
 
 
 @contextmanager
-def isolated_nvidia_environment(model: str, thinking_mode: str):
+def isolated_nvidia_environment(model: str, thinking_mode: str, reasoning_effort: str):
     """Yield an isolated Hermes environment for an NVIDIA consultation.
 
     The temporary profile contains only the provider override needed for the
-    NVIDIA request. MiniMax's thinking field is added when applicable. The
+    NVIDIA request. Model-specific reasoning fields are added when supported;
+    MiniMax's thinking field is added separately. The
     user's .env is exposed as a read-only symlink so Hermes can load the
     existing credential without copying it into the temporary workspace or
     placing it in the consultation payload.
@@ -263,7 +303,7 @@ def isolated_nvidia_environment(model: str, thinking_mode: str):
     with tempfile.TemporaryDirectory(prefix="codex-hermes-home-") as isolated_home:
         isolated_path = Path(isolated_home)
         (isolated_path / "config.yaml").write_text(
-            json.dumps(build_isolated_config(model, thinking_mode), indent=2) + "\n",
+            json.dumps(build_isolated_config(model, thinking_mode, reasoning_effort), indent=2) + "\n",
             encoding="utf-8",
         )
 
@@ -317,7 +357,7 @@ def parse_args() -> argparse.Namespace:
         "--reasoning-effort",
         choices=REASONING_EFFORTS,
         default=DEFAULT_REASONING_EFFORT,
-        help="Hermes reasoning level; for MiniMax M3, none disables thinking and all other levels enable it (default: high)",
+        help="Hermes reasoning level; Inkling uses the full none-to-max scale, GLM 5.2 maps to high/max, and MiniMax M3 maps to thinking_mode (default: max)",
     )
     parser.add_argument(
         "--thinking-mode",
@@ -394,7 +434,7 @@ def main() -> int:
                 with tempfile.TemporaryDirectory(prefix="codex-hermes-consult-") as isolated_cwd:
                     COMMON.materialize_selected_files(Path(isolated_cwd), selected)
                     if uses_isolated_nvidia_route(args, model):
-                        with isolated_nvidia_environment(model, thinking_mode) as hermes_env:
+                        with isolated_nvidia_environment(model, thinking_mode, args.reasoning_effort) as hermes_env:
                             result = subprocess.run(
                                 command,
                                 cwd=isolated_cwd,
