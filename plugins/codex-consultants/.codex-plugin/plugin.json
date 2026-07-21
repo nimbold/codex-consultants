@@ -1,6 +1,6 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260721160529",
+  "version": "0.1.0+codex.20260721184047",
   "description": "Use bounded, read-only Agy, Hermes, or OpenCode consultations while Codex remains the primary investigator and implementer, including the /opencode command.",
   "author": {
     "name": "Codex Consultants contributors"
@@ -15,6 +15,7 @@
     "opencode",
     "open-code",
     "deepseek",
+    "laguna",
     "zen",
     "code-review",
     "adversarial-review"
@@ -23,7 +24,7 @@
   "interface": {
     "displayName": "Codex Consultants",
     "shortDescription": "Read-only Agy, Hermes, and OpenCode opinions for Codex",
-    "longDescription": "Consult Antigravity with Gemini 3.6 Flash High by default, Hermes with NVIDIA NIM, or OpenCode CLI with OpenCode Zen free models through the /opencode command for bounded adversarial review while Codex independently validates findings, makes changes, and runs tests.",
+    "longDescription": "Consult Antigravity with Gemini 3.6 Flash High by default, Hermes with NVIDIA NIM, or OpenCode CLI with Laguna S 2.1 Free at high reasoning by default through the /opencode command for bounded adversarial review while Codex independently validates findings, makes changes, and runs tests.",
     "developerName": "Codex Consultants contributors",
     "category": "Developer Tools",
     "capabilities": [

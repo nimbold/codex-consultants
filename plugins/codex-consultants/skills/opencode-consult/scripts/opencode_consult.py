@@ -24,11 +24,12 @@ DEFAULT_TIMEOUT_SECONDS = 300
 # the caller explicitly opts into retries.
 DEFAULT_RETRIES = 0
 RETRY_DELAY_SECONDS = 2.0
-DEFAULT_MODEL = "opencode/deepseek-v4-flash-free"
-DEFAULT_VARIANT = "max"
+DEFAULT_MODEL = "opencode/laguna-s-2.1-free"
+DEFAULT_VARIANT = "high"
 CONSULTANT_AGENT = "codex-consultant"
 MAX_MODELS = 3
 FREE_MODELS = (
+    "opencode/laguna-s-2.1-free",
     "opencode/deepseek-v4-flash-free",
     "opencode/big-pickle",
     "opencode/mimo-v2.5-free",
@@ -72,7 +73,7 @@ def resolve_models(args: argparse.Namespace) -> list[str]:
 
 
 def resolve_variant(model: str, requested: str | None) -> str | None:
-    """Use DeepSeek's max variant by default without breaking other free models."""
+    """Use Laguna S 2.1 Free's high variant by default without breaking other free models."""
     if requested is not None:
         variant = requested.strip()
         if not variant:
@@ -171,7 +172,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--variant",
-        help=f"provider-specific reasoning variant; default is {DEFAULT_VARIANT!r} for the DeepSeek free model",
+        help=f"provider-specific reasoning variant; default is {DEFAULT_VARIANT!r} for the Laguna S 2.1 Free model",
     )
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)

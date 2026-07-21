@@ -1,5 +1,5 @@
 ---
-description: Run a bounded, read-only OpenCode CLI second opinion using the default free DeepSeek V4 Flash model.
+description: Run a bounded, read-only OpenCode CLI second opinion using the default Laguna S 2.1 Free model.
 ---
 
 # OpenCode Consultation
@@ -14,7 +14,7 @@ description: Run a bounded, read-only OpenCode CLI second opinion using the defa
 ## Plan
 
 - Run the bounded consultant wrapper in `diff` mode by default, or `plan` mode when the implementation has not started.
-- Use OpenCode Zen's `opencode/deepseek-v4-flash-free` with its `max` reasoning variant by default.
+- Use OpenCode Zen's `opencode/laguna-s-2.1-free` with its `high` reasoning variant by default.
 - Keep the consultation read-only and independently verify every actionable claim against the live repository.
 
 ## Commands
