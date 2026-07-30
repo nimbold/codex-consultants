@@ -1,7 +1,7 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260721184047",
-  "description": "Use bounded, read-only Agy, Hermes, or OpenCode consultations while Codex remains the primary investigator and implementer, including the /opencode command.",
+  "version": "0.1.0+codex.20260730003342",
+  "description": "Use bounded, read-only Agy, Hermes, or OpenCode consultations with durable review jobs while Codex remains the primary investigator and implementer, including /consult and /opencode commands.",
   "author": {
     "name": "Codex Consultants contributors"
   },
@@ -18,21 +18,24 @@
     "laguna",
     "zen",
     "code-review",
-    "adversarial-review"
+    "adversarial-review",
+    "background-jobs",
+    "job-status",
+    "cancellation"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Consultants",
-    "shortDescription": "Read-only Agy, Hermes, and OpenCode opinions for Codex",
-    "longDescription": "Consult Antigravity with Gemini 3.6 Flash High by default, Hermes with NVIDIA NIM, or OpenCode CLI with Laguna S 2.1 Free at high reasoning by default through the /opencode command for bounded adversarial review while Codex independently validates findings, makes changes, and runs tests.",
+    "shortDescription": "Read-only Agy, Hermes, and OpenCode reviews with job controls",
+    "longDescription": "Run bounded Agy, Hermes, OpenCode, or multi-provider reviews from Codex with isolated provider adapters, atomic repository-scoped job state, background execution, status/result/cancel controls, and adversarial prompts while Codex independently validates findings, makes changes, and runs tests.",
     "developerName": "Codex Consultants contributors",
     "category": "Developer Tools",
     "capabilities": [
       "Read"
     ],
     "defaultPrompt": [
-      "Use Agy, Hermes, or OpenCode as a bounded read-only second opinion while Codex remains primary.",
-      "Run /opencode for the default free OpenCode review."
+      "Run a bounded Agy, Hermes, or OpenCode review panel.",
+      "Start a background adversarial review and inspect its result."
     ]
   }
 }

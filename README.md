@@ -1,10 +1,16 @@
 # Codex Consultants
 
-A Codex plugin for bounded, read-only Agy, Hermes, and OpenCode code-review second opinions, with NVIDIA NIM, Thinking Machines Inkling, MiniMax M3, and OpenCode Zen free-model support.
+A Codex plugin for bounded, read-only Agy, Hermes, and OpenCode code-review second opinions. It uses a shared control plane inspired by the job, state, process, and review-target architecture of OpenAI's [Codex plugin for Claude Code](https://github.com/openai/codex-plugin-cc), while remaining a native Codex plugin.
 
-Codex remains the primary investigator, implementer, tester, and decision-maker.
+Codex remains the primary investigator, implementer, tester, and decision-maker. Consultants never edit, commit, push, or become the sole source of a finding.
 
-The plugin does not bundle any client. Install and authenticate the client you want separately, then keep it on `PATH`. Hermes is configured for NVIDIA NIM with Thinking Machines Inkling and `max` reasoning by default; MiniMax M3 remains available as an explicit alternative. OpenCode defaults to the currently free OpenCode Zen `opencode/laguna-s-2.1-free` with its `high` reasoning variant, with other free Zen models available explicitly.
+## Providers
+
+- Agy — Antigravity, default `Gemini 3.6 Flash (High)`.
+- Hermes — NVIDIA NIM, default `thinkingmachines/inkling` with `max` reasoning; MiniMax M3 remains available explicitly.
+- OpenCode — OpenCode Zen, default `opencode/laguna-s-2.1-free` with the `high` reasoning variant.
+
+Install and authenticate each client separately; the plugin does not bundle or configure them.
 
 ## Codex plugin installation
 
@@ -22,27 +28,79 @@ codex plugin marketplace add nimbold/codex-consultants --ref main
 codex plugin add codex-consultants@codex-consultants
 ```
 
-Start a new Codex thread after installation so the skills are rediscovered. The plugin does not install, log in to, or configure Agy, Hermes, or NVIDIA. Hermes defaults to NVIDIA's `thinkingmachines/inkling` with `max` reasoning.
+Start a new Codex thread after installation so skills and commands are rediscovered.
 
-For OpenCode, install the CLI separately, authenticate OpenCode Zen with `opencode auth login`, and confirm the catalog with `opencode models opencode`. The free Zen choices are provider-managed and may change; the wrapper currently defaults to `opencode/laguna-s-2.1-free` with `high` reasoning and also accepts `opencode/deepseek-v4-flash-free`, `opencode/big-pickle`, `opencode/mimo-v2.5-free`, `opencode/north-mini-code-free`, and `opencode/nemotron-3-ultra-free`.
+## Control-plane commands
 
-Use either the plugin installation or the manual installer for a given `CODEX_HOME`, not both. If upgrading from the old repository, remove its stale registration once with `codex plugin remove codex-agy-consultant@codex-agy` before installing this plugin.
+Use the shared runtime for one consultant or a provider panel:
 
-## Skill commands
+```sh
+codex-consult setup
+codex-consult consult --provider agy "review the retry boundary"
+codex-consult consult --provider hermes "look for lifecycle races"
+codex-consult consult --provider opencode "challenge this design"
+codex-consult review --provider all --background
+codex-consult adversarial-review --provider all --background "look for stale state, cancellation, and security gaps"
+codex-consult status
+codex-consult result
+codex-consult cancel <job-id>
+```
 
-Use `/skills` to browse the installed skills, or mention these concise skill names directly:
+The Codex commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup`. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
-- `$agy-consult` — bounded Agy second opinion using `Gemini 3.6 Flash (High)` by default.
-- `$hermes-consult` — bounded Hermes second opinion using NVIDIA NIM and `thinkingmachines/inkling` with `max` reasoning.
-- `$opencode-consult` — bounded OpenCode CLI second opinion using OpenCode Zen free models, mainly Laguna S 2.1 Free with `high` reasoning.
+The existing `$agy-consult`, `$hermes-consult`, and `$opencode-consult` skills remain available for direct provider-specific consultations. `/opencode` remains as a compatibility command.
 
-The plugin also provides the short `/opencode` command for the default OpenCode review. Use `$opencode-consult` when you need its advanced options such as `--phase`, `--path`, `--model`, or `--variant`.
+## Prompts and use cases
 
-All skills are explicit-only. They do not run automatically, and Codex must independently verify every actionable suggestion.
+The reusable review prompts live in `plugins/codex-consultants/skills/codex-consult/prompts/` and are loaded by the runtime. They require evidence-backed findings, explicit uncertainty, and a read-only consultation boundary.
+
+Normal review before shipping:
+
+```sh
+codex-consult review --provider all --scope working-tree --background
+codex-consult status
+codex-consult result
+```
+
+Review a clean feature branch against `main`:
+
+```sh
+codex-consult review --provider opencode --scope branch --base main --wait
+```
+
+Pressure-test a risky change from several angles:
+
+```sh
+codex-consult adversarial-review --provider all --background \
+  "look for cancellation races, stale state, malformed input, recovery gaps, and security boundary bypasses"
+```
+
+Ask one provider a focused question without starting a panel:
+
+```sh
+codex-consult consult --provider hermes --path src/queue.rs \
+  "trace admission and cancellation ordering; identify only issues supported by the supplied context"
+```
+
+If a long-running job must stop, use the exact id shown by `status`; cancellation records the request first and cleans up the worker and provider process trees. A cancellation or unavailable provider is not a code-quality verdict.
+
+## Runtime design
+
+The shared control plane owns the lifecycle that the provider adapters should not duplicate:
+
+- repository-scoped, mode-600 job records under the Codex state directory;
+- atomic state writes, bounded logs, session-aware status filtering, and stale-worker reconciliation;
+- foreground or detached background jobs with provider fan-out and partial-success reporting;
+- process-group cancellation across the worker and provider subprocesses;
+- durable `status`, `result`, `cancel`, and `setup` operations.
+
+Each adapter still builds a bounded task bundle, omits sensitive paths and full lockfiles, materializes only selected context into a temporary workspace, and uses provider-specific read-only configuration. The real repository path is not supplied as consultant context.
+
+Empty output, timeouts, non-zero exits, missing clients, and partial provider availability are inconclusive. Codex must independently verify every actionable claim against live source, tests, logs, and repository state.
 
 ## Manual installation
 
-The optional installer adds the concise Agy, Hermes, and OpenCode skills and command-line launchers:
+The optional installer adds the control-plane skill, provider skills, launchers, and global guidance:
 
 ```sh
 git clone https://github.com/nimbold/codex-consultants.git
@@ -50,24 +108,9 @@ cd codex-consultants
 ./scripts/install.sh --install-guidance
 ```
 
-Use `python3 scripts/install.py` when `install.sh` is unavailable. Add `--force` only when replacing an existing installation; the installer creates timestamped backups. `--install-guidance` is optional and appends a marked, idempotent policy block to `CODEX_HOME/AGENTS.md`.
+The main launcher is `codex-consult`. Compatibility launchers remain available as `codex-agy-consult`, `codex-hermes-consult`, `codex-opencode`, and `codex-opencode-consult`.
 
-The launchers are:
-
-```sh
-codex-agy-consult
-codex-hermes-consult
-codex-opencode
-codex-opencode-consult
-```
-
-## How it works
-
-Codex first forms its own understanding. The selected consultant then receives a bounded task bundle containing the task, safe repository status, selected files, and, for diff consultations, relevant tracked hunks. The shared preflight omits sensitive paths, full lockfiles, oversized files, and low-priority diff paths with explicit context notes.
-
-Each wrapper invokes its client from an isolated temporary workspace containing only the selected context files. Agy uses plan/sandbox mode. Hermes uses NVIDIA NIM, Inkling with `max` reasoning by default, `--oneshot`, `--ignore-rules`, and an isolated custom-provider route. MiniMax M3 remains available with its provider-specific thinking mode. OpenCode uses `opencode run` with a temporary read-only config, the Laguna S 2.1 Free `high` variant by default, and external plugins disabled. None of these wrappers gives the client the real repository path or asks it to edit, commit, push, or make the final decision.
-
-Empty output, timeouts, non-zero exits, and oversized bundles are inconclusive. Reports are compacted to a bounded line-based format with at most four findings. Codex validates the result against the live repository before accepting or rejecting any advice.
+Use either plugin installation or the manual installer for a given `CODEX_HOME`, not both. Add `--force` only when replacing an existing installation; the installer creates timestamped backups.
 
 ## Development
 
@@ -75,6 +118,7 @@ Run the local checks from the repository root:
 
 ```sh
 python3 -m py_compile \
+  plugins/codex-consultants/skills/codex-consult/scripts/consultant_runtime.py \
   plugins/codex-consultants/skills/agy-consult/scripts/agy_consult.py \
   plugins/codex-consultants/skills/hermes-consult/scripts/hermes_consult.py \
   plugins/codex-consultants/skills/opencode-consult/scripts/opencode_consult.py \
@@ -82,11 +126,16 @@ python3 -m py_compile \
 python3 scripts/test_consult.py
 python3 scripts/test_hermes_consult.py
 python3 scripts/test_opencode_consult.py
+python3 scripts/test_runtime.py
 python3 scripts/test_install.py
 ```
 
-Live client smoke tests are intentionally opt-in because they require authenticated local Agy, Hermes, or OpenCode sessions and may consume provider quota.
+Live provider smoke tests remain opt-in because they require authenticated local sessions and may consume quota.
 
 ## Privacy
 
-Review bundles may contain source code and are sent to the configured provider. Do not include credentials, cookies, tokens, private keys, databases, or unrelated private data. Review the current Agy, Hermes, NVIDIA, and OpenCode Zen terms and data controls before using this with sensitive repositories.
+Review bundles may contain source code and are sent to the configured provider. Never include credentials, cookies, tokens, private keys, databases, or unrelated private data. Review each provider's current terms and data controls before using this with sensitive repositories.
+
+## Credits
+
+The shared lifecycle and review-target design was informed by OpenAI's [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), especially its durable jobs, background execution, status/result/cancel flow, and normal/adversarial review split. This repository is an independent Codex plugin that retains its Agy, Hermes, and OpenCode adapters and their provider-specific safety boundaries.

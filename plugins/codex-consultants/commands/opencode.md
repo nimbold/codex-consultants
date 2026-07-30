@@ -19,13 +19,13 @@ description: Run a bounded, read-only OpenCode CLI second opinion using the defa
 
 ## Commands
 
-Use `codex-opencode` when the short launcher is installed:
+Use the shared control-plane launcher when it is installed:
 
 ```bash
-codex-opencode "$ARGUMENTS"
+codex-consult consult --provider opencode $ARGUMENTS
 ```
 
-If the short launcher is unavailable, use the compatibility launcher:
+For direct adapter debugging, use the compatibility launcher:
 
 ```bash
 codex-opencode-consult "$ARGUMENTS"
@@ -37,7 +37,7 @@ Pass relevant files explicitly when the task needs source context:
 codex-opencode --path path/to/relevant-file --path path/to/another-file "$ARGUMENTS"
 ```
 
-Use `--phase plan` before implementation, `--phase diff` after implementation, and repeat `--model` only when independent free-model opinions are intentionally requested.
+Use `--phase plan` before implementation, `--phase diff` after implementation, and repeat `--model` only when independent free-model opinions are intentionally requested. Add `--background` to the shared launcher for long-running work, then use `codex-consult status` and `codex-consult result`.
 
 ## Verification
 
