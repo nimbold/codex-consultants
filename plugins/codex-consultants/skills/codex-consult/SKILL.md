@@ -13,6 +13,8 @@ The runtime supports three provider adapters:
 - `hermes` — NVIDIA NIM/Inkling, default `thinkingmachines/inkling` with `max` reasoning.
 - `opencode` — OpenCode Zen, default `opencode/laguna-s-2.1-free` with the `high` variant.
 
+Before running the bundled runtime from a plugin-only installation, set `PLUGIN_ROOT` to the absolute installed plugin directory. The script path is `python3 $PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py`. The manual installer additionally provides the `codex-consult` launcher.
+
 Run a provider panel with:
 
 ```sh

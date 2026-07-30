@@ -22,7 +22,7 @@ description: Run a bounded, read-only OpenCode CLI second opinion using the defa
 Use the shared control-plane launcher when it is installed:
 
 ```bash
-codex-consult consult --provider opencode $ARGUMENTS
+python3 "$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py" consult --provider opencode $ARGUMENTS
 ```
 
 For direct adapter debugging, use the compatibility launcher:

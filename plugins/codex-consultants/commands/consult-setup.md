@@ -3,7 +3,7 @@ description: Check consultant client availability and the repository-scoped stat
 ---
 
 ```sh
-codex-consult setup $ARGUMENTS
+python3 "$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py" setup $ARGUMENTS
 ```
 
 This command does not install, authenticate, or configure any provider client.

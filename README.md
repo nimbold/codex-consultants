@@ -30,6 +30,8 @@ codex plugin add codex-consultants@codex-consultants
 
 Start a new Codex thread after installation so skills and commands are rediscovered.
 
+The slash commands run the bundled control-plane script through Codex's `PLUGIN_ROOT`; no global `codex-consult` executable is required. The optional manual installer below adds that executable for terminal use.
+
 ## Control-plane commands
 
 Use the shared runtime for one consultant or a provider panel:

@@ -51,6 +51,8 @@ def main() -> int:
         assert (launcher_dir / "codex-hermes-consult").is_file()
         assert (launcher_dir / "codex-opencode").is_file()
         assert (launcher_dir / "codex-opencode-consult").is_file()
+        command_text = (ROOT / "plugins" / "codex-consultants" / "commands" / "consult-review.md").read_text(encoding="utf-8")
+        assert '"$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py"' in command_text
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")
         control_skill = (codex_home / "skills" / "codex-consult" / "SKILL.md").read_text(encoding="utf-8")
         hermes_skill = (codex_home / "skills" / "hermes-consult" / "SKILL.md").read_text(encoding="utf-8")
