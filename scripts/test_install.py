@@ -42,7 +42,7 @@ def main() -> int:
         )
         assert installed.returncode == 0, installed.stderr
         assert (codex_home / "skills" / "codex-consult" / "SKILL.md").is_file()
-        assert (codex_home / "skills" / "consult" / "SKILL.md").is_file()
+        assert not (ROOT / "plugins" / "codex-consultants" / "skills" / "consult" / "SKILL.md").exists()
         assert (codex_home / "skills" / "codex-consult" / "prompts" / "review.md").is_file()
         assert (codex_home / "skills" / "agy-consult" / "SKILL.md").is_file()
         assert (codex_home / "skills" / "hermes-consult" / "SKILL.md").is_file()
@@ -56,14 +56,15 @@ def main() -> int:
         assert '"$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py"' in command_text
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")
         control_skill = (codex_home / "skills" / "codex-consult" / "SKILL.md").read_text(encoding="utf-8")
-        consult_skill = (codex_home / "skills" / "consult" / "SKILL.md").read_text(encoding="utf-8")
         hermes_skill = (codex_home / "skills" / "hermes-consult" / "SKILL.md").read_text(encoding="utf-8")
         opencode_skill = (codex_home / "skills" / "opencode-consult" / "SKILL.md").read_text(encoding="utf-8")
         assert "Explicit invocation only" in installed_skill
-        assert "background jobs" in control_skill
-        assert "durable status/result/cancel" in control_skill
-        assert "Codex-native `/consult` entry point" in consult_skill
-        assert "Pass the consultation request as one argument" in consult_skill
+        assert "--background" in control_skill
+        assert "durable job controls" in control_skill
+        assert "canonical Codex Desktop skill entry" in control_skill
+        assert "--provider agy" in control_skill
+        assert "name: consult" in control_skill
+        assert "$codex-consult" not in control_skill
         assert "$agy-consult" in installed_skill
         assert "$hermes-consult" in hermes_skill
         assert "thinkingmachines/inkling" in hermes_skill

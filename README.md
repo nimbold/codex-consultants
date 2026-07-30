@@ -30,7 +30,7 @@ codex plugin add codex-consultants@codex-consultants
 
 Start a new Codex thread after installation so skills and plugin metadata are rediscovered.
 
-Codex Desktop currently exposes plugin skills in the composer picker. Type `/cons` and select `Codex Consultants: Consult` (the native `/consult` entry point), or select `Codex Consultants: Codex Consult` for the full control-plane skill. The accompanying request becomes the bounded consultation prompt. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
+Codex Desktop currently exposes plugin skills in the composer picker. Type `/cons` and select the single `Codex Consultants: Consult` entry. The accompanying request becomes the bounded consultation prompt. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
 
 ## Control-plane commands
 
@@ -48,7 +48,7 @@ codex-consult result
 codex-consult cancel <job-id>
 ```
 
-The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$codex-consult` and have Codex run the corresponding runtime operation. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
+The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$consult` and have Codex run the corresponding runtime operation. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
 The existing `$agy-consult`, `$hermes-consult`, and `$opencode-consult` skills remain available for direct provider-specific consultations. `/opencode` remains as a compatibility command.
 
@@ -75,6 +75,13 @@ Pressure-test a risky change from several angles:
 ```sh
 codex-consult adversarial-review --provider all --background \
   "look for cancellation races, stale state, malformed input, recovery gaps, and security boundary bypasses"
+```
+
+Agy-only adversarial review of the committed rewrite (the rewrite starts after `015dcd7` in this repository):
+
+```sh
+codex-consult adversarial-review --provider agy --scope branch --base 015dcd7 --background --wait \
+  "pressure-test the rewrite for races, stale state, cancellation, malformed input, recovery, security boundaries, and platform failures"
 ```
 
 Ask one provider a focused question without starting a panel:

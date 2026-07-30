@@ -16,6 +16,14 @@ codex-consult consult --provider agy "<your bounded review question>"
 codex-consult adversarial-review --provider agy --background "<risk focus>"
 ```
 
+To review committed changes rather than only the current working tree, provide the base ref:
+
+```sh
+codex-consult adversarial-review --provider agy --scope branch --base <base-ref> --background --wait "pressure-test the rewrite for races, stale state, cancellation, malformed input, recovery, security boundaries, and platform failures"
+```
+
+The runtime sends the commit range from `<base-ref>` to `HEAD`. Use `--scope working-tree` for uncommitted changes instead.
+
 For direct adapter debugging, the bundled `scripts/agy_consult.py` wrapper remains available through `codex-agy-consult`. Choose `--phase plan` before implementation or `--phase diff` after implementation, and include only relevant files with repeated `--path` arguments.
 
 Use `codex-consult status`, `codex-consult result`, and `codex-consult cancel` for jobs started through the control plane.
