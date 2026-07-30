@@ -14,6 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = REPO_ROOT / "plugins" / "codex-consultants"
 SKILL_SOURCES = {
+    "consult": PLUGIN_ROOT / "skills" / "consult",
     "codex-consult": PLUGIN_ROOT / "skills" / "codex-consult",
     "agy-consult": PLUGIN_ROOT / "skills" / "agy-consult",
     "hermes-consult": PLUGIN_ROOT / "skills" / "hermes-consult",

@@ -28,9 +28,9 @@ codex plugin marketplace add nimbold/codex-consultants --ref main
 codex plugin add codex-consultants@codex-consultants
 ```
 
-Start a new Codex thread after installation so skills and commands are rediscovered.
+Start a new Codex thread after installation so skills and plugin metadata are rediscovered.
 
-The slash commands run the bundled control-plane script through Codex's `PLUGIN_ROOT`; no global `codex-consult` executable is required. The optional manual installer below adds that executable for terminal use.
+Codex Desktop currently exposes plugin skills in the composer picker. Type `/cons` and select `Codex Consultants: Consult` (the native `/consult` entry point), or select `Codex Consultants: Codex Consult` for the full control-plane skill. The accompanying request becomes the bounded consultation prompt. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
 
 ## Control-plane commands
 
@@ -48,7 +48,7 @@ codex-consult result
 codex-consult cancel <job-id>
 ```
 
-The Codex commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup`. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
+The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$codex-consult` and have Codex run the corresponding runtime operation. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
 The existing `$agy-consult`, `$hermes-consult`, and `$opencode-consult` skills remain available for direct provider-specific consultations. `/opencode` remains as a compatibility command.
 
