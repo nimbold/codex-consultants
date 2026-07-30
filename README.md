@@ -30,7 +30,7 @@ codex plugin add codex-consultants@codex-consultants
 
 Start a new Codex thread after installation so skills and plugin metadata are rediscovered.
 
-Codex Desktop currently exposes plugin skills in the composer picker. Type `/cons` and select the single `Codex Consultants: Consult` entry. The accompanying request becomes the bounded consultation prompt. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
+Codex Desktop exposes one public plugin skill in the composer picker. Type `/cons` and select the single `Codex Consultants: Consult` entry. The accompanying request becomes the bounded consultation prompt. Agy, Hermes, and OpenCode adapters remain bundled internally for provider selection; they are intentionally not separate picker entries. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
 
 ## Control-plane commands
 
@@ -50,7 +50,7 @@ codex-consult cancel <job-id>
 
 The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$consult` and have Codex run the corresponding runtime operation. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
-The existing `$agy-consult`, `$hermes-consult`, and `$opencode-consult` skills remain available for direct provider-specific consultations. `/opencode` remains as a compatibility command.
+The existing `$agy-consult`, `$hermes-consult`, and `$opencode-consult` skills remain available only through the optional manual installer for direct provider-specific consultations. They are not advertised by the plugin picker. `/opencode` remains as a compatibility command for command-capable/manual installations.
 
 ## Prompts and use cases
 

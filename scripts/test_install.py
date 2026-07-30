@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -52,6 +53,12 @@ def main() -> int:
         assert (launcher_dir / "codex-hermes-consult").is_file()
         assert (launcher_dir / "codex-opencode").is_file()
         assert (launcher_dir / "codex-opencode-consult").is_file()
+        manifest = json.loads(
+            (ROOT / "plugins" / "codex-consultants" / ".codex-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert manifest["skills"] == "./skills/codex-consult"
         command_text = (ROOT / "plugins" / "codex-consultants" / "commands" / "consult-review.md").read_text(encoding="utf-8")
         assert '"$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py"' in command_text
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")

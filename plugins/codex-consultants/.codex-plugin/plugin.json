@@ -1,6 +1,6 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260730005728",
+  "version": "0.1.0+codex.20260730010834",
   "description": "Use bounded, read-only Agy, Hermes, or OpenCode consultations with durable review jobs while Codex remains the primary investigator and implementer, including /consult and /opencode commands.",
   "author": {
     "name": "Codex Consultants contributors"
@@ -23,7 +23,7 @@
     "job-status",
     "cancellation"
   ],
-  "skills": "./skills/",
+  "skills": "./skills/codex-consult",
   "interface": {
     "displayName": "Codex Consultants",
     "shortDescription": "Read-only Agy, Hermes, and OpenCode reviews with job controls",
