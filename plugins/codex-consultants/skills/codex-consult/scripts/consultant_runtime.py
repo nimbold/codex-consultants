@@ -3,7 +3,7 @@
 
 The runtime deliberately keeps provider clients outside the control plane. It
 owns bounded job state, isolation, fan-out, cancellation, and result handling;
-the existing Agy, Hermes, and OpenCode adapters remain responsible for their
+the existing Agy and OpenCode adapters remain responsible for their
 provider-specific safety and request configuration.
 """
 
@@ -33,10 +33,9 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 SKILLS_ROOT = PLUGIN_ROOT / "skills" if (PLUGIN_ROOT / "skills").is_dir() else PLUGIN_ROOT
 STATE_ENV = "CODEX_CONSULT_STATE_DIR"
 SESSION_ENV = "CODEX_CONSULT_SESSION_ID"
-PROVIDER_ORDER = ("agy", "hermes", "opencode")
+PROVIDER_ORDER = ("agy", "opencode")
 PROVIDER_SCRIPTS = {
     "agy": SKILLS_ROOT / "agy-consult" / "scripts" / "agy_consult.py",
-    "hermes": SKILLS_ROOT / "hermes-consult" / "scripts" / "hermes_consult.py",
     "opencode": SKILLS_ROOT / "opencode-consult" / "scripts" / "opencode_consult.py",
 }
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -365,7 +364,7 @@ def provider_names(values: list[str] | None, default: str = "all") -> list[str]:
             elif name in PROVIDER_ORDER:
                 expanded = [name]
             else:
-                raise ValueError(f"unknown provider {name!r}; use agy, hermes, opencode, or all")
+                raise ValueError(f"unknown provider {name!r}; use agy, opencode, or all")
             for provider in expanded:
                 if provider not in names:
                     names.append(provider)
@@ -410,12 +409,6 @@ def build_provider_command(provider: str, task: str, options: argparse.Namespace
             command.extend(["--print-timeout", options.print_timeout])
         if options.agent:
             command.extend(["--agent", options.agent])
-    elif provider == "hermes":
-        if options.reasoning_effort:
-            command.extend(["--reasoning-effort", options.reasoning_effort])
-        if options.thinking_mode:
-            command.extend(["--thinking-mode", options.thinking_mode])
-        command.extend(["--rpm-limit", str(options.rpm_limit)])
     elif provider == "opencode" and options.variant:
         command.extend(["--variant", options.variant])
 
@@ -524,9 +517,6 @@ def create_job(repo: Path, kind: str, providers: list[str], task: str, options: 
                 "model": options.model or [],
                 "path": options.path or [],
                 "variant": options.variant,
-                "reasoning_effort": options.reasoning_effort,
-                "thinking_mode": options.thinking_mode,
-                "rpm_limit": options.rpm_limit,
                 "print_timeout": options.print_timeout,
                 "agent": options.agent,
                 "scope": options.scope,
@@ -974,7 +964,7 @@ def launch_or_run(repo: Path, kind: str, providers: list[str], task: str, option
 
 
 def add_execution_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", action="append", help="agy, hermes, opencode, or all; repeatable (default: all)")
+    parser.add_argument("--provider", action="append", help="agy, opencode, or all; repeatable (default: all)")
     parser.add_argument("--phase", choices=("plan", "diff"), default="diff")
     parser.add_argument("--scope", choices=("auto", "working-tree", "branch"), default="auto")
     parser.add_argument("--base", help="branch/ref used for clean branch reviews")
@@ -984,9 +974,6 @@ def add_execution_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--retries", type=int, default=0)
     parser.add_argument("--variant", help="OpenCode reasoning variant")
-    parser.add_argument("--reasoning-effort", default="max")
-    parser.add_argument("--thinking-mode", choices=("enabled", "disabled", "adaptive"))
-    parser.add_argument("--rpm-limit", type=int, default=39)
     parser.add_argument("--print-timeout", default="120s")
     parser.add_argument("--agent")
     parser.add_argument("--background", action="store_true")
@@ -1037,7 +1024,7 @@ def setup_report(repo: Path) -> dict[str, Any]:
         "python": sys.executable,
         "providers": {
             provider: {"available": shutil.which(command) is not None, "command": command}
-            for provider, command in (("agy", "agy"), ("hermes", "hermes"), ("opencode", "opencode"))
+            for provider, command in (("agy", "agy"), ("opencode", "opencode"))
         },
     }
 
@@ -1110,8 +1097,6 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.max_bytes <= 0 or args.timeout <= 0 or args.retries < 0 or args.retries > 2:
             raise ValueError("max-bytes and timeout must be positive; retries must be between 0 and 2")
-        if args.rpm_limit < 1 or args.rpm_limit > 39:
-            raise ValueError("rpm-limit must be between 1 and 39")
         prompt = " ".join(args.prompt).strip()
         if args.command == "consult" and not prompt:
             raise ValueError("provide a consultation task")

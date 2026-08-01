@@ -1,5 +1,5 @@
 ---
-description: Run a bounded Agy, Hermes, OpenCode, or multi-provider consultation with durable job controls.
+description: Run a bounded Agy, OpenCode, or multi-provider consultation with durable job controls.
 ---
 
 # Consultant Control Plane
@@ -16,7 +16,6 @@ Choose a provider explicitly when a panel is not needed:
 
 ```sh
 python3 "$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py" consult --provider agy $ARGUMENTS
-python3 "$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py" consult --provider hermes $ARGUMENTS
 python3 "$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py" consult --provider opencode $ARGUMENTS
 ```
 

@@ -1,13 +1,12 @@
 # Codex Consultants
 
-A Codex plugin for bounded, read-only Agy, Hermes, and OpenCode code-review second opinions. It uses a shared control plane inspired by the job, state, process, and review-target architecture of OpenAI's [Codex plugin for Claude Code](https://github.com/openai/codex-plugin-cc), while remaining a native Codex plugin.
+A Codex plugin for bounded, read-only Agy and OpenCode code-review second opinions. It uses a shared control plane inspired by the job, state, process, and review-target architecture of OpenAI's [Codex plugin for Claude Code](https://github.com/openai/codex-plugin-cc), while remaining a native Codex plugin.
 
 Codex remains the primary investigator, implementer, tester, and decision-maker. Consultants never edit, commit, push, or become the sole source of a finding.
 
 ## Providers
 
 - Agy — Antigravity, default `Gemini 3.6 Flash (High)`.
-- Hermes — NVIDIA NIM, default `thinkingmachines/inkling` with `max` reasoning; MiniMax M3 remains available explicitly.
 - OpenCode — OpenCode Zen, default `opencode/deepseek-v4-flash-free` with the `max` reasoning variant.
 
 Install and authenticate each client separately; the plugin does not bundle or configure them.
@@ -30,7 +29,7 @@ codex plugin add codex-consultants@codex-consultants
 
 Start a new Codex thread after installation so skills and plugin metadata are rediscovered.
 
-Codex Desktop exposes one public plugin skill in the composer picker. Type `/cons` and select the single `Codex Consultants: Consult` entry. The accompanying request becomes the bounded consultation prompt. Agy, Hermes, and OpenCode adapters remain bundled internally for provider selection; they are intentionally not separate picker entries. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
+Codex Desktop exposes one public plugin skill in the composer picker. Type `/cons` and select the single `Codex Consultants: Consult` entry. The accompanying request becomes the bounded consultation prompt. Agy and OpenCode adapters remain bundled internally for provider selection; they are intentionally not separate picker entries. The plugin also retains the `commands/` templates for command-capable runtimes, but those files are not guaranteed to appear as direct Desktop slash commands. No global `codex-consult` executable is required for the plugin; the optional manual installer below adds that executable for terminal use.
 
 ## Control-plane commands
 
@@ -39,7 +38,6 @@ Use the shared runtime for one consultant or a provider panel:
 ```sh
 codex-consult setup
 codex-consult consult --provider agy "review the retry boundary"
-codex-consult consult --provider hermes "look for lifecycle races"
 codex-consult consult --provider opencode "challenge this design"
 codex-consult review --provider all --background
 codex-consult adversarial-review --provider all --background "look for stale state, cancellation, and security gaps"
@@ -50,7 +48,7 @@ codex-consult cancel <job-id>
 
 The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$consult` and have Codex run the corresponding runtime operation. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
-The existing `$agy-consult`, `$hermes-consult`, and `$opencode-consult` skills remain available only through the optional manual installer for direct provider-specific consultations. They are not advertised by the plugin picker. `/opencode` remains as a compatibility command for command-capable/manual installations.
+The existing `$agy-consult` and `$opencode-consult` skills remain available only through the optional manual installer for direct provider-specific consultations. They are not advertised by the plugin picker. `/opencode` remains as a compatibility command for command-capable/manual installations.
 
 ## Prompts and use cases
 
@@ -87,7 +85,7 @@ codex-consult adversarial-review --provider agy --scope branch --base 015dcd7 --
 Ask one provider a focused question without starting a panel:
 
 ```sh
-codex-consult consult --provider hermes --path src/queue.rs \
+codex-consult consult --provider opencode --path src/queue.rs \
   "trace admission and cancellation ordering; identify only issues supported by the supplied context"
 ```
 
@@ -117,7 +115,7 @@ cd codex-consultants
 ./scripts/install.sh --install-guidance
 ```
 
-The main launcher is `codex-consult`. Compatibility launchers remain available as `codex-agy-consult`, `codex-hermes-consult`, `codex-opencode`, and `codex-opencode-consult`.
+The main launcher is `codex-consult`. Compatibility launchers remain available as `codex-agy-consult`, `codex-opencode`, and `codex-opencode-consult`.
 
 Use either plugin installation or the manual installer for a given `CODEX_HOME`, not both. Add `--force` only when replacing an existing installation; the installer creates timestamped backups.
 
@@ -129,11 +127,9 @@ Run the local checks from the repository root:
 python3 -m py_compile \
   plugins/codex-consultants/skills/codex-consult/scripts/consultant_runtime.py \
   plugins/codex-consultants/skills/agy-consult/scripts/agy_consult.py \
-  plugins/codex-consultants/skills/hermes-consult/scripts/hermes_consult.py \
   plugins/codex-consultants/skills/opencode-consult/scripts/opencode_consult.py \
   scripts/install.py
 python3 scripts/test_consult.py
-python3 scripts/test_hermes_consult.py
 python3 scripts/test_opencode_consult.py
 python3 scripts/test_runtime.py
 python3 scripts/test_install.py
@@ -147,4 +143,4 @@ Review bundles may contain source code and are sent to the configured provider. 
 
 ## Credits
 
-The shared lifecycle and review-target design was informed by OpenAI's [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), especially its durable jobs, background execution, status/result/cancel flow, and normal/adversarial review split. This repository is an independent Codex plugin that retains its Agy, Hermes, and OpenCode adapters and their provider-specific safety boundaries.
+The shared lifecycle and review-target design was informed by OpenAI's [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), especially its durable jobs, background execution, status/result/cancel flow, and normal/adversarial review split. This repository is an independent Codex plugin that retains its Agy and OpenCode adapters and their provider-specific safety boundaries.

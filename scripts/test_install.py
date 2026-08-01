@@ -46,13 +46,22 @@ def main() -> int:
         assert not (ROOT / "plugins" / "codex-consultants" / "skills" / "consult" / "SKILL.md").exists()
         assert (codex_home / "skills" / "codex-consult" / "prompts" / "review.md").is_file()
         assert (codex_home / "skills" / "agy-consult" / "SKILL.md").is_file()
-        assert (codex_home / "skills" / "hermes-consult" / "SKILL.md").is_file()
         assert (codex_home / "skills" / "opencode-consult" / "SKILL.md").is_file()
+        assert {path.name for path in (codex_home / "skills").iterdir()} == {
+            "agy-consult",
+            "codex-consult",
+            "opencode-consult",
+        }
         assert (launcher_dir / "codex-consult").is_file()
         assert (launcher_dir / "codex-agy-consult").is_file()
-        assert (launcher_dir / "codex-hermes-consult").is_file()
         assert (launcher_dir / "codex-opencode").is_file()
         assert (launcher_dir / "codex-opencode-consult").is_file()
+        assert {path.name for path in launcher_dir.iterdir()} == {
+            "codex-agy-consult",
+            "codex-consult",
+            "codex-opencode",
+            "codex-opencode-consult",
+        }
         manifest = json.loads(
             (ROOT / "plugins" / "codex-consultants" / ".codex-plugin" / "plugin.json").read_text(
                 encoding="utf-8"
@@ -63,7 +72,6 @@ def main() -> int:
         assert '"$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py"' in command_text
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")
         control_skill = (codex_home / "skills" / "codex-consult" / "SKILL.md").read_text(encoding="utf-8")
-        hermes_skill = (codex_home / "skills" / "hermes-consult" / "SKILL.md").read_text(encoding="utf-8")
         opencode_skill = (codex_home / "skills" / "opencode-consult" / "SKILL.md").read_text(encoding="utf-8")
         assert "Explicit invocation only" in installed_skill
         assert "--background" in control_skill
@@ -73,17 +81,13 @@ def main() -> int:
         assert "name: consult" in control_skill
         assert "$codex-consult" not in control_skill
         assert "$agy-consult" in installed_skill
-        assert "$hermes-consult" in hermes_skill
-        assert "thinkingmachines/inkling" in hermes_skill
-        assert "reasoning set to `max`" in hermes_skill
-        assert "minimaxai/minimax-m3" in hermes_skill
         assert "$opencode-consult" in opencode_skill
         assert "opencode/deepseek-v4-flash-free" in opencode_skill
         assert "reasoning variant" in opencode_skill
         assert "max" in opencode_skill
         guidance = (codex_home / "AGENTS.md").read_text(encoding="utf-8")
         assert "codex-consultants:start" in guidance
-        assert "Agy, Hermes, and OpenCode are explicit opt-in second opinions" in guidance
+        assert "Agy and OpenCode are explicit opt-in second opinions" in guidance
         assert "unless the user explicitly requests" in guidance
 
         refused = run("--codex-home", str(codex_home), "--launcher-dir", str(launcher_dir))
@@ -100,8 +104,6 @@ def main() -> int:
         assert list((codex_home / "skill-backups").glob("codex-consult.backup-*"))
         assert list(launcher_dir.glob("codex-consult.backup-*"))
         assert list(launcher_dir.glob("codex-agy-consult.backup-*"))
-        assert list((codex_home / "skill-backups").glob("hermes-consult.backup-*"))
-        assert list(launcher_dir.glob("codex-hermes-consult.backup-*"))
         assert list(launcher_dir.glob("codex-opencode.backup-*"))
         assert list((codex_home / "skill-backups").glob("opencode-consult.backup-*"))
         assert list(launcher_dir.glob("codex-opencode-consult.backup-*"))

@@ -1,7 +1,7 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260730010834",
-  "description": "Use bounded, read-only Agy, Hermes, or OpenCode consultations with durable review jobs while Codex remains the primary investigator and implementer, including /consult and /opencode commands.",
+  "version": "0.1.0+codex.20260801152611",
+  "description": "Use bounded, read-only Agy and OpenCode consultations with durable review jobs while Codex remains the primary investigator and implementer, including /consult and /opencode commands.",
   "author": {
     "name": "Codex Consultants contributors"
   },
@@ -10,8 +10,6 @@
     "codex",
     "agy",
     "antigravity",
-    "hermes",
-    "nvidia",
     "opencode",
     "open-code",
     "deepseek",
@@ -21,20 +19,22 @@
     "adversarial-review",
     "background-jobs",
     "job-status",
-    "cancellation"
+    "cancellation",
+    "consultant",
+    "read-only"
   ],
   "skills": "./skills/codex-consult",
   "interface": {
     "displayName": "Codex Consultants",
-    "shortDescription": "Read-only Agy, Hermes, and OpenCode reviews with job controls",
-    "longDescription": "Run bounded Agy, Hermes, OpenCode, or multi-provider reviews from Codex with isolated provider adapters, atomic repository-scoped job state, background execution, status/result/cancel controls, and adversarial prompts while Codex independently validates findings, makes changes, and runs tests.",
+    "shortDescription": "Read-only Agy and OpenCode reviews with job controls",
+    "longDescription": "Run bounded Agy, OpenCode, or multi-provider reviews from Codex with isolated provider adapters, atomic repository-scoped job state, background execution, status/result/cancel controls, and adversarial prompts while Codex independently validates findings, makes changes, and runs tests.",
     "developerName": "Codex Consultants contributors",
     "category": "Developer Tools",
     "capabilities": [
       "Read"
     ],
     "defaultPrompt": [
-      "Run a bounded Agy, Hermes, or OpenCode review panel.",
+      "Run a bounded Agy or OpenCode review panel.",
       "Start a background adversarial review and inspect its result."
     ]
   }

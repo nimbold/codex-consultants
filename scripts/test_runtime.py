@@ -37,9 +37,6 @@ def options(**overrides):
         "model": [],
         "path": [],
         "variant": None,
-        "reasoning_effort": "max",
-        "thinking_mode": None,
-        "rpm_limit": 39,
         "print_timeout": "120s",
         "agent": None,
         "job_id": None,
@@ -53,9 +50,9 @@ def options(**overrides):
 
 def main() -> int:
     module = load_module()
-    assert module.provider_names(None) == ["agy", "hermes", "opencode"]
+    assert module.provider_names(None) == ["agy", "opencode"]
     assert module.provider_names(["agy", "opencode", "agy"]) == ["agy", "opencode"]
-    assert module.provider_names(["agy,hermes"]) == ["agy", "hermes"]
+    assert module.provider_names(["agy,opencode"]) == ["agy", "opencode"]
     assert module.prompt_template("review").startswith("Perform a normal")
     assert "adversarial" in module.prompt_template("adversarial-review").lower()
     assert ("start_new_session" in module.process_group_kwargs()) == (os.name != "nt")
@@ -117,7 +114,7 @@ def main() -> int:
         assert stale_record["status"] == "failed"
         assert "worker exited" in stale_record["error"]
 
-        failing_id = module.create_job(root, "review", ["hermes"], "fail", job_options)
+        failing_id = module.create_job(root, "review", ["opencode"], "fail", job_options)
         assert module.run_worker(root, failing_id) == 1
         failed = module.load_job(root, failing_id)
         assert failed is not None and failed["status"] == "failed"
