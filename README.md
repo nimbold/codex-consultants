@@ -8,7 +8,7 @@ Codex remains the primary investigator, implementer, tester, and decision-maker.
 
 - Agy — Antigravity, default `Gemini 3.6 Flash (High)`.
 - Hermes — NVIDIA NIM, default `thinkingmachines/inkling` with `max` reasoning; MiniMax M3 remains available explicitly.
-- OpenCode — OpenCode Zen, default `opencode/laguna-s-2.1-free` with the `high` reasoning variant.
+- OpenCode — OpenCode Zen, default `opencode/deepseek-v4-flash-free` with the `max` reasoning variant.
 
 Install and authenticate each client separately; the plugin does not bundle or configure them.
 

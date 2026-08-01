@@ -5,7 +5,7 @@ description: Use OpenCode CLI with OpenCode Zen free models for a bounded, read-
 
 # OpenCode Consultant
 
-Use `$opencode-consult` when you want OpenCode CLI to challenge Codex's current understanding. The default route is OpenCode Zen's currently free `opencode/laguna-s-2.1-free` model with the `high` reasoning variant.
+Use `$opencode-consult` when you want OpenCode CLI to challenge Codex's current understanding. The default route is OpenCode Zen's currently free `opencode/deepseek-v4-flash-free` model with the `max` reasoning variant.
 
 Other currently listed free Zen models can be selected with repeated `--model` flags, including `opencode/deepseek-v4-flash-free`, `opencode/big-pickle`, `opencode/mimo-v2.5-free`, `opencode/north-mini-code-free`, and `opencode/nemotron-3-ultra-free`. Free-model availability and names are provider-managed and may change.
 
@@ -18,7 +18,7 @@ codex-consult consult --provider opencode "<your bounded review question>"
 codex-consult adversarial-review --provider opencode --background "<risk focus>"
 ```
 
-For direct adapter debugging, the bundled `scripts/opencode_consult.py` wrapper remains available through `codex-opencode-consult`. Choose `--phase plan` before implementation or `--phase diff` after implementation, and include only relevant files with repeated `--path` arguments. Use repeated `--model` flags for independent free-model opinions. The Laguna S 2.1 Free default automatically uses `--variant high`; pass `--variant` explicitly when the selected model supports a different provider-specific variant.
+For direct adapter debugging, the bundled `scripts/opencode_consult.py` wrapper remains available through `codex-opencode-consult`. Choose `--phase plan` before implementation or `--phase diff` after implementation, and include only relevant files with repeated `--path` arguments. Use repeated `--model` flags for independent free-model opinions. The DeepSeek V4 Flash Free default automatically uses `--variant max`; pass `--variant` explicitly when the selected model supports a different provider-specific variant.
 
 Use `codex-consult status`, `codex-consult result`, and `codex-consult cancel` for jobs started through the control plane.
 

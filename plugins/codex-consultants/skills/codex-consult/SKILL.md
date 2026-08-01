@@ -11,7 +11,7 @@ The runtime supports three provider adapters:
 
 - `agy` — Antigravity, default Gemini 3.6 Flash High.
 - `hermes` — NVIDIA NIM/Inkling, default `thinkingmachines/inkling` with `max` reasoning.
-- `opencode` — OpenCode Zen, default `opencode/laguna-s-2.1-free` with the `high` variant.
+- `opencode` — OpenCode Zen, default `opencode/deepseek-v4-flash-free` with the `max` variant.
 
 This is the canonical Codex Desktop skill entry for the plugin. Before running the bundled runtime from a plugin-only installation, set `PLUGIN_ROOT` to the absolute installed plugin directory. The script path is `python3 $PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py`. The manual installer additionally provides the `codex-consult` launcher.
 

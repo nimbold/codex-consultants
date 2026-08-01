@@ -33,8 +33,11 @@ def main() -> int:
     assert "/opencode" in command_text or "OpenCode Consultation" in command_text
 
     args = Namespace(models=None, variant=None)
+    assert module.DEFAULT_MODEL == "opencode/deepseek-v4-flash-free"
+    assert module.DEFAULT_VARIANT == "max"
     assert module.resolve_models(args) == [module.DEFAULT_MODEL]
-    assert module.resolve_variant(module.DEFAULT_MODEL, None) == "high"
+    assert module.resolve_variant(module.DEFAULT_MODEL, None) == "max"
+    assert module.resolve_variant(module.DEFAULT_MODEL, "high") == "high"
     assert module.resolve_variant("opencode/mimo-v2.5-free", None) is None
     assert module.resolve_variant("opencode/mimo-v2.5-free", "high") == "high"
     assert module.FREE_MODELS == (
@@ -50,7 +53,7 @@ def main() -> int:
     command = module.build_command(
         "/usr/local/bin/opencode",
         module.DEFAULT_MODEL,
-        "high",
+        module.resolve_variant(module.DEFAULT_MODEL, None),
         workspace,
         "payload",
     )
@@ -67,7 +70,7 @@ def main() -> int:
         "--dir",
         str(workspace),
         "--variant",
-        "high",
+        module.DEFAULT_VARIANT,
         "payload",
     ]
     assert "--variant" not in module.build_command(
