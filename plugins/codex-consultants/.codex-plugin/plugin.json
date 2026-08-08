@@ -1,6 +1,6 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260808212506",
+  "version": "0.1.0+codex.20260808215453",
   "description": "Use bounded, read-only Agy consultations by default, with explicit OpenCode or multi-provider panels and durable review jobs while Codex remains the primary investigator and implementer.",
   "author": {
     "name": "Codex Consultants contributors"
@@ -12,8 +12,8 @@
     "antigravity",
     "opencode",
     "open-code",
-    "deepseek",
-    "laguna",
+    "nvidia",
+    "inkling",
     "zen",
     "code-review",
     "adversarial-review",

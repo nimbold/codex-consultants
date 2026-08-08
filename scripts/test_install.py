@@ -85,9 +85,9 @@ def main() -> int:
         assert "$codex-consult" not in control_skill
         assert "$agy-consult" in installed_skill
         assert "$opencode-consult" in opencode_skill
-        assert "opencode/deepseek-v4-flash-free" in opencode_skill
-        assert "reasoning variant" in opencode_skill
-        assert "max" in opencode_skill
+        assert "nvidia/thinkingmachines/inkling" in opencode_skill
+        assert "reasoning support" in opencode_skill
+        assert "no selectable reasoning variant" in opencode_skill
         guidance = (codex_home / "AGENTS.md").read_text(encoding="utf-8")
         assert "codex-consultants:start" in guidance
         assert "Agy and OpenCode are explicit opt-in second opinions" in guidance

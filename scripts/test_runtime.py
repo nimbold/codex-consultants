@@ -10,6 +10,8 @@ from pathlib import Path
 import stat
 import subprocess
 import tempfile
+import threading
+import time
 from argparse import Namespace
 
 
@@ -54,11 +56,20 @@ def main() -> int:
     assert module.provider_names(["all"]) == ["agy", "opencode"]
     assert module.provider_names(["agy", "opencode", "agy"]) == ["agy", "opencode"]
     assert module.provider_names(["agy,opencode"]) == ["agy", "opencode"]
+    assert module.validate_job_id("consult-123-0123abcd") == "consult-123-0123abcd"
+    for invalid_job_id in ("../escape", "consult-123/escape", "consult-123-not-hex"):
+        try:
+            module.validate_job_id(invalid_job_id)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid job id was accepted: {invalid_job_id}")
     assert module.prompt_template("review").startswith("Perform a normal")
     assert "adversarial" in module.prompt_template("adversarial-review").lower()
     assert ("start_new_session" in module.process_group_kwargs()) == (os.name != "nt")
     diagnostic = module.compact("token=abc123 Authorization: Bearer sk_test_123")
     assert "token=[redacted]" in diagnostic and "[redacted-token]" in diagnostic
+    assert module.compact("\x1b[31mREPORT: safe output\x1b[0m") == "REPORT: safe output"
 
     with tempfile.TemporaryDirectory(prefix="codex-consult-runtime-test-") as temp:
         root = Path(temp).resolve()
@@ -66,7 +77,9 @@ def main() -> int:
         os.environ[module.STATE_ENV] = str(state)
         fake = root / "fake_provider.py"
         fake.write_text(
-            "import sys\n"
+            "import sys, time\n"
+            "if 'sleep' in sys.argv:\n"
+            "    time.sleep(30)\n"
             "if 'fail' in sys.argv:\n"
             "    print('synthetic failure', file=sys.stderr)\n"
             "    raise SystemExit(7)\n"
@@ -94,12 +107,61 @@ def main() -> int:
         assert len(module.review_target_context(review_repo, "working-tree", None, max_bytes=128).encode()) <= 128
 
         job_options = options()
+        try:
+            module.job_path(root, "../../escape")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("job path accepted traversal input")
         job_id = module.create_job(root, "review", ["agy", "opencode"], "synthetic review", job_options)
         record = module.load_job(root, job_id)
         assert record is not None and record["status"] == "queued"
         assert module.load_spec(root, job_id).task == "synthetic review"
         assert stat.S_IMODE(module.job_path(root, job_id).stat().st_mode) == 0o600
         assert stat.S_IMODE(module.log_path(root, job_id).stat().st_mode) == 0o600
+
+        race_id = module.create_job(root, "review", ["agy"], "sleep", job_options)
+        race_options = options(job_id=race_id)
+        active = {}
+        active_lock = threading.Lock()
+        cancel_event = threading.Event()
+        provider_result = {}
+        provider_thread = threading.Thread(
+            target=lambda: provider_result.setdefault(
+                "value",
+                module.run_provider(
+                    "agy",
+                    "sleep",
+                    race_options,
+                    root,
+                    active,
+                    active_lock,
+                    cancel_event,
+                ),
+            )
+        )
+        provider_thread.start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with active_lock:
+                if active:
+                    break
+            time.sleep(0.01)
+        with active_lock:
+            assert active
+        cancelled, _, provider_pids = module.request_cancel(root, race_id)
+        assert cancelled["status"] == "cancelled"
+        with active_lock:
+            provider_pids.extend(process.pid for process in active.values())
+        for pid in set(provider_pids):
+            module.terminate_pid(pid)
+        cancel_event.set()
+        provider_thread.join(timeout=10)
+        assert not provider_thread.is_alive()
+        assert provider_result["value"]["status"] == "cancelled"
+        with active_lock:
+            assert active == {}
+        assert module.load_job(root, race_id)["providerPids"] == {}
 
         assert module.run_worker(root, job_id) == 0
         finished = module.load_job(root, job_id)

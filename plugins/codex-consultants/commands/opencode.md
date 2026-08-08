@@ -1,5 +1,5 @@
 ---
-description: Run a bounded, read-only OpenCode CLI second opinion using the default DeepSeek V4 Flash Free model.
+description: Run a bounded, read-only OpenCode CLI second opinion using NVIDIA's default Inkling model.
 ---
 
 # OpenCode Consultation
@@ -8,13 +8,13 @@ description: Run a bounded, read-only OpenCode CLI second opinion using the defa
 
 1. Form Codex's own understanding of the task before consulting OpenCode.
 2. Identify only the relevant repository paths; never include credentials, cookies, tokens, private keys, databases, or unrelated private data.
-3. Confirm that OpenCode CLI is installed and authenticated for OpenCode Zen.
+3. Confirm that OpenCode CLI is installed and authenticated for the configured provider; the default requires NVIDIA credentials.
 4. Confirm the task is asking for a second opinion, not for OpenCode to edit the repository.
 
 ## Plan
 
 - Run the bounded consultant wrapper in `diff` mode by default, or `plan` mode when the implementation has not started.
-- Use OpenCode Zen's `opencode/deepseek-v4-flash-free` with its `max` reasoning variant by default.
+- Use NVIDIA's `nvidia/thinkingmachines/inkling` (`Inkling`) by default. It advertises reasoning support, but its current catalog entry has no selectable variant, so do not add `--variant`.
 - Keep the consultation read-only and independently verify every actionable claim against the live repository.
 
 ## Commands

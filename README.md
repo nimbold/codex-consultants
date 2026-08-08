@@ -7,7 +7,7 @@ Codex remains the primary investigator, implementer, tester, and decision-maker.
 ## Providers
 
 - Agy — Antigravity, default `Gemini 3.6 Flash (High)`.
-- OpenCode — OpenCode Zen, default `opencode/deepseek-v4-flash-free` with the `max` reasoning variant.
+- OpenCode — NVIDIA `nvidia/thinkingmachines/inkling` (`Inkling`) by default. OpenCode reports reasoning support for Inkling, but its current model entry exposes no selectable reasoning variant.
 
 Install and authenticate each client separately; the plugin does not bundle or configure them.
 

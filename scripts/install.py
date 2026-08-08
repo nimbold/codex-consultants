@@ -213,7 +213,7 @@ def main() -> int:
     else:
         print(f"agy: {shutil.which('agy')}")
     if shutil.which("opencode") is None:
-        print("warning: opencode was not found on PATH; install and authenticate OpenCode Zen before using $opencode-consult.")
+        print("warning: opencode was not found on PATH; install OpenCode and authenticate the provider selected by your model before using $opencode-consult.")
     else:
         print(f"opencode: {shutil.which('opencode')}")
     if not args.dry_run:

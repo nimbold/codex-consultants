@@ -45,6 +45,10 @@ MAX_STORED_JOBS = 32
 MAX_LOG_BYTES = 96_000
 QUEUE_STALE_SECONDS = 60
 MAX_TARGET_CONTEXT_BYTES = 48_000
+MAX_MAX_BYTES = 2_000_000
+MAX_TIMEOUT_SECONDS = 1_800
+MAX_REPORT_CHARS = 6_000
+JOB_ID_PATTERN = re.compile(r"^consult-[0-9]+-[0-9a-f]{8}$")
 SENSITIVE_NAMES = {".env", ".env.local", ".env.production", ".env.development", "credentials.json", "cookies.json", "cookies.txt"}
 LOCKFILE_NAMES = {"cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "poetry.lock", "gemfile.lock", "go.sum"}
 SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".sqlite", ".sqlite3", ".db")
@@ -65,6 +69,8 @@ SENSITIVE_DIAGNOSTIC = re.compile(
     r"(?i)\b(api[_-]?key|token|secret|password|authorization|bearer)\s*[:=]\s*([^\s,;]+)"
 )
 KNOWN_TOKEN = re.compile(r"\b(?:sk|gh[pousr]|xox[baprs])_[A-Za-z0-9_-]+\b")
+ANSI_OSC_ESCAPE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 
 
 def now_iso() -> str:
@@ -216,7 +222,7 @@ def jobs_dir(repo: Path) -> Path:
 
 
 def job_path(repo: Path, job_id: str) -> Path:
-    return jobs_dir(repo) / f"{job_id}.json"
+    return jobs_dir(repo) / f"{validate_job_id(job_id)}.json"
 
 
 @contextmanager
@@ -265,11 +271,17 @@ _LOG_THREAD_LOCK = threading.Lock()
 
 
 def spec_path(repo: Path, job_id: str) -> Path:
-    return jobs_dir(repo) / f"{job_id}.spec.json"
+    return jobs_dir(repo) / f"{validate_job_id(job_id)}.spec.json"
 
 
 def log_path(repo: Path, job_id: str) -> Path:
-    return jobs_dir(repo) / f"{job_id}.log"
+    return jobs_dir(repo) / f"{validate_job_id(job_id)}.log"
+
+
+def validate_job_id(job_id: str) -> str:
+    if not isinstance(job_id, str) or not JOB_ID_PATTERN.fullmatch(job_id):
+        raise ValueError("invalid consultant job id")
+    return job_id
 
 
 def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
@@ -312,6 +324,13 @@ def read_json(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def sanitize_text(text: str) -> str:
+    """Remove terminal control sequences before provider text reaches Codex."""
+    text = ANSI_OSC_ESCAPE.sub("", str(text))
+    text = ANSI_ESCAPE.sub("", text)
+    return "".join(character for character in text if character in "\r\n\t" or ord(character) >= 32)
+
+
 def load_job(repo: Path, job_id: str) -> dict[str, Any] | None:
     return read_json(job_path(repo, job_id))
 
@@ -332,7 +351,7 @@ def update_job(repo: Path, job_id: str, **patch: Any) -> dict[str, Any]:
 
 
 def append_log(path: Path, message: str) -> None:
-    message = str(message).strip()
+    message = sanitize_text(message).strip()
     if not message:
         return
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -422,7 +441,7 @@ def build_provider_command(provider: str, task: str, options: argparse.Namespace
 
 
 def compact(text: str, limit: int = 2_000) -> str:
-    text = " ".join(str(text).strip().split())
+    text = " ".join(sanitize_text(text).strip().split())
     text = SENSITIVE_DIAGNOSTIC.sub(lambda match: f"{match.group(1)}=[redacted]", text)
     text = KNOWN_TOKEN.sub("[redacted-token]", text)
     return text if len(text) <= limit else text[-limit:]
@@ -460,6 +479,31 @@ def terminate_pid(pid: int | None, *, force: bool = False) -> bool:
             return False
     except OSError:
         return False
+
+
+def reap_process(process: subprocess.Popen[str], timeout: float = 2.0) -> tuple[str, str]:
+    """Drain a provider after termination without leaving a zombie or open pipes."""
+    try:
+        stdout, stderr = process.communicate(timeout=max(0.1, timeout))
+        return stdout or "", stderr or ""
+    except subprocess.TimeoutExpired:
+        terminate_pid(process.pid, force=True)
+        try:
+            stdout, stderr = process.communicate(timeout=2)
+            return stdout or "", stderr or ""
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+            return "", ""
 
 
 def pid_alive(pid: int | None) -> bool:
@@ -534,7 +578,7 @@ def prune_jobs(repo: Path) -> None:
     jobs = []
     for path in jobs_dir(repo).glob("consult-*.json"):
         job = read_json(path)
-        if job is not None:
+        if job is not None and isinstance(job.get("id"), str) and JOB_ID_PATTERN.fullmatch(job["id"]):
             jobs.append(job)
     terminal = sorted(
         (job for job in jobs if job.get("status") in TERMINAL_STATUSES),
@@ -589,30 +633,27 @@ def run_provider(
         update_job(repo, options.job_id, providerPids=provider_pids)
     except RuntimeError as exc:
         terminate_pid(process.pid)
+        reap_process(process)
         with active_lock:
             active.pop(provider, None)
         return {"status": "failed", "error": f"could not record {provider} process: {exc}"}
-    if cancel_event.is_set() or cancel_marker(repo, options.job_id).exists():
+    cancellation_requested = cancel_event.is_set() or cancel_marker(repo, options.job_id).exists()
+    if cancellation_requested:
         terminate_pid(process.pid)
-        return {"status": "cancelled", "error": "cancellation requested during provider start"}
     try:
-        stdout, stderr = process.communicate(timeout=max(30, int(options.timeout) + 30))
+        communicate_timeout = 5 if cancellation_requested else max(30, int(options.timeout) + 30)
+        stdout, stderr = process.communicate(timeout=communicate_timeout)
     except subprocess.TimeoutExpired:
         terminate_pid(process.pid)
-        try:
-            stdout, stderr = process.communicate(timeout=2)
-        except subprocess.TimeoutExpired:
-            terminate_pid(process.pid, force=True)
-            try:
-                stdout, stderr = process.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stdout, stderr = process.communicate()
+        stdout, stderr = reap_process(process)
         result = {"status": "failed", "error": f"timed out after {options.timeout} seconds"}
     else:
-        report = stdout.strip()
+        report = bounded_text(sanitize_text(stdout).strip(), MAX_REPORT_CHARS)
         diagnostic = compact(stderr)
-        if process.returncode == 0 and report:
+        cancellation_requested = cancel_event.is_set() or cancel_marker(repo, options.job_id).exists()
+        if cancellation_requested:
+            result = {"status": "cancelled", "error": "cancellation requested during provider consultation"}
+        elif process.returncode == 0 and report:
             result = {"status": "completed", "report": report}
             if diagnostic:
                 result["diagnostic"] = diagnostic
@@ -760,7 +801,7 @@ def run_worker(repo: Path, job_id: str) -> int:
 
 
 def cancel_marker(repo: Path, job_id: str) -> Path:
-    return jobs_dir(repo) / f"{job_id}.cancel"
+    return jobs_dir(repo) / f"{validate_job_id(job_id)}.cancel"
 
 
 def request_cancel(repo: Path, job_id: str) -> tuple[dict[str, Any], int | None, list[int]]:
@@ -843,7 +884,7 @@ def list_jobs(repo: Path, include_all: bool = False) -> list[dict[str, Any]]:
     current_session = session_id()
     for path in jobs_dir(repo).glob("consult-*.json"):
         job = read_json(path)
-        if job is None or not isinstance(job.get("id"), str):
+        if job is None or not isinstance(job.get("id"), str) or not JOB_ID_PATTERN.fullmatch(job["id"]):
             continue
         if job.get("workspaceRoot") != str(repo):
             continue
@@ -980,8 +1021,18 @@ def add_execution_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base", help="branch/ref used for clean branch reviews")
     parser.add_argument("--path", action="append", default=[], help="relevant repository path; repeatable")
     parser.add_argument("--model", action="append", default=[], help="provider model; repeatable")
-    parser.add_argument("--max-bytes", type=int, default=80_000)
-    parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=80_000,
+        help=f"maximum consultation bundle size in bytes (default: 80000; max: {MAX_MAX_BYTES})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help=f"provider timeout in seconds (default: 300; max: {MAX_TIMEOUT_SECONDS})",
+    )
     parser.add_argument("--retries", type=int, default=0)
     parser.add_argument("--variant", help="OpenCode reasoning variant")
     parser.add_argument("--print-timeout", default="120s")
@@ -1105,8 +1156,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{verb} consultant job {job['id']}.")
             return 0
 
-        if args.max_bytes <= 0 or args.timeout <= 0 or args.retries < 0 or args.retries > 2:
-            raise ValueError("max-bytes and timeout must be positive; retries must be between 0 and 2")
+        if (
+            args.max_bytes <= 0
+            or args.max_bytes > MAX_MAX_BYTES
+            or args.timeout <= 0
+            or args.timeout > MAX_TIMEOUT_SECONDS
+            or args.retries < 0
+            or args.retries > 2
+        ):
+            raise ValueError(
+                f"max-bytes must be between 1 and {MAX_MAX_BYTES}; timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds; retries must be between 0 and 2"
+            )
         prompt = " ".join(args.prompt).strip()
         if args.command == "consult" and not prompt:
             raise ValueError("provide a consultation task")

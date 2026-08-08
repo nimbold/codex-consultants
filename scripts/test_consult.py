@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 import tempfile
 from argparse import Namespace
 from pathlib import Path
@@ -94,6 +96,17 @@ def main() -> int:
     assert module.should_retry("returned an empty consultation response")
     assert not module.should_retry("returned an empty consultation response. Diagnostic: permission denied")
     assert not module.should_retry("permission denied by headless mode")
+    assert module.compact_report("\x1b[31mREPORT: safe output\x1b[0m") == "REPORT: safe output"
+    assert module.compact_diagnostic("\x1b]0;hostile title\x07\x1b[0mtoken=secret") == "token=secret"
+
+    bounded, timed_out = module.run_bounded_process(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        cwd=ROOT,
+        env=os.environ.copy(),
+        timeout=0.1,
+    )
+    assert timed_out
+    assert bounded.returncode == -1
 
     payload, selected = module.build_payload(ROOT, "plan", "test task", 80_000, ["README.md"])
     assert "tracked diff omitted for plan phase" in payload
@@ -133,6 +146,9 @@ def main() -> int:
         (repo / "src" / "no-newline.py").write_text("value = 1", encoding="utf-8")
         no_newline_diff = module.build_path_diff(repo, Path("src/no-newline.py"))
         assert "\\ No newline at end of file" in no_newline_diff
+        (repo / "src" / "huge.py").write_bytes(b"x" * (module.MAX_DIFF_BYTES + 1))
+        huge_diff = module.build_path_diff(repo, Path("src/huge.py"))
+        assert "diff omitted" in huge_diff
 
     with tempfile.TemporaryDirectory(prefix="codex-agy-directory-test-") as temp:
         repo = Path(temp).resolve()

@@ -8,7 +8,6 @@ import importlib.util
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -24,11 +23,15 @@ DEFAULT_TIMEOUT_SECONDS = 300
 # the caller explicitly opts into retries.
 DEFAULT_RETRIES = 0
 RETRY_DELAY_SECONDS = 2.0
-DEFAULT_MODEL = "opencode/deepseek-v4-flash-free"
-DEFAULT_VARIANT = "max"
+DEFAULT_MODEL = "nvidia/thinkingmachines/inkling"
+# Inkling advertises reasoning support, but its current OpenCode catalog entry
+# exposes no selectable variants. Leave the provider-native reasoning behavior
+# intact and only pass --variant when a caller explicitly requests one.
+DEFAULT_VARIANT = None
 CONSULTANT_AGENT = "codex-consultant"
 MAX_MODELS = 3
-FREE_MODELS = (
+KNOWN_MODELS = (
+    "nvidia/thinkingmachines/inkling",
     "opencode/laguna-s-2.1-free",
     "opencode/deepseek-v4-flash-free",
     "opencode/big-pickle",
@@ -73,13 +76,13 @@ def resolve_models(args: argparse.Namespace) -> list[str]:
 
 
 def resolve_variant(model: str, requested: str | None) -> str | None:
-    """Use DeepSeek V4 Flash Free's max variant by default without breaking other free models."""
+    """Honor an explicit provider variant without inventing one for Inkling."""
     if requested is not None:
         variant = requested.strip()
         if not variant:
             raise ValueError("--variant must not be empty")
         return variant
-    return DEFAULT_VARIANT if model.strip().lower() == DEFAULT_MODEL else None
+    return DEFAULT_VARIANT
 
 
 def build_command(
@@ -172,10 +175,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--variant",
-        help=f"provider-specific reasoning variant; default is {DEFAULT_VARIANT!r} for the DeepSeek V4 Flash Free model",
+        help="provider-specific reasoning variant; omitted by default when the selected model exposes no variant",
     )
-    parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=DEFAULT_MAX_BYTES,
+        help=f"maximum consultation bundle size in bytes (default: {DEFAULT_MAX_BYTES}; max: {COMMON.MAX_MAX_BYTES})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=f"provider timeout in seconds (default: {DEFAULT_TIMEOUT_SECONDS}; max: {COMMON.MAX_TIMEOUT_SECONDS})",
+    )
     parser.add_argument(
         "--retries",
         type=int,
@@ -228,21 +241,18 @@ def main() -> int:
                     COMMON.materialize_selected_files(workspace, selected)
                     command = build_command(opencode, model, variant, workspace, payload)
                     with isolated_opencode_environment(model) as opencode_env:
-                        result = subprocess.run(
+                        result, timed_out = COMMON.run_bounded_process(
                             command,
                             cwd=workspace,
-                            text=True,
-                            capture_output=True,
-                            timeout=remaining,
-                            check=False,
                             env=opencode_env,
+                            timeout=remaining,
                         )
-            except subprocess.TimeoutExpired:
-                model_failure = f"timed out after {args.timeout} seconds"
             except OSError as exc:
                 model_failure = f"could not start opencode: {exc}"
             else:
-                if result.returncode != 0:
+                if timed_out:
+                    model_failure = f"timed out after {args.timeout} seconds"
+                elif result.returncode != 0:
                     detail = COMMON.compact_diagnostic(result.stderr) or "opencode returned no diagnostic"
                     model_failure = f"exited with status {result.returncode}: {detail}"
                 elif not result.stdout.strip():

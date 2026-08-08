@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,9 @@ MAX_FINDINGS = 4
 MAX_REPORT_CHARS = 6_000
 MAX_FULL_CONTEXT_FILE_BYTES = 24_000
 MAX_DIRECTORY_FILES = 128
+MAX_DIFF_BYTES = 64_000
+MAX_MAX_BYTES = 2_000_000
+MAX_TIMEOUT_SECONDS = 1_800
 CONTEXT_BUDGET_RATIO = 0.35
 DIFF_BUDGET_RATIO = 0.45
 DIFF_CONTEXT_LINES = 20
@@ -77,6 +81,8 @@ NON_RETRYABLE_FAILURE_MARKERS = (
     "not found",
     "not a regular",
 )
+ANSI_OSC_ESCAPE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 
 
 def fail(message: str, code: int = 2) -> int:
@@ -92,6 +98,140 @@ def run_git(repo: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def process_group_kwargs() -> dict[str, int]:
+    """Keep provider children in a killable process group on every platform."""
+    if os.name == "nt":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+def terminate_process_tree(process: subprocess.Popen[str], *, force: bool = False) -> None:
+    """Terminate a provider and descendants without signalling this wrapper."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        result = subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 or "not found" in f"{result.stdout} {result.stderr}".lower():
+            return
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    try:
+        process.kill() if force else process.terminate()
+    except ProcessLookupError:
+        pass
+
+
+def finish_terminated_process(process: subprocess.Popen[str]) -> tuple[str, str]:
+    """Drain a terminated process, with a hard fallback if descendants hold pipes."""
+    try:
+        stdout, stderr = process.communicate(timeout=2)
+        return stdout or "", stderr or ""
+    except subprocess.TimeoutExpired:
+        terminate_process_tree(process, force=True)
+        try:
+            stdout, stderr = process.communicate(timeout=2)
+            return stdout or "", stderr or ""
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+            return "", ""
+
+
+def run_bounded_process(
+    command: list[str],
+    *,
+    cwd: str | os.PathLike[str],
+    env: dict[str, str],
+    timeout: float,
+) -> tuple[subprocess.CompletedProcess[str], bool]:
+    """Run a provider with timeout cleanup that also reaches its descendants."""
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        **process_group_kwargs(),
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        terminate_process_tree(process)
+        stdout, stderr = finish_terminated_process(process)
+        return subprocess.CompletedProcess(command, -1, stdout, stderr), True
+    except KeyboardInterrupt:
+        terminate_process_tree(process)
+        finish_terminated_process(process)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout or "", stderr or ""), False
+
+
+def bounded_git_output(repo: Path, args: list[str], limit: int = MAX_DIFF_BYTES) -> str | None:
+    """Capture Git output without allowing a huge diff to exhaust memory."""
+    process = subprocess.Popen(
+        ["git", *args],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **process_group_kwargs(),
+    )
+    output = bytearray()
+    try:
+        while process.stdout is not None:
+            chunk = process.stdout.read1(min(64 * 1024, limit + 1 - len(output)))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > limit:
+                terminate_process_tree(process, force=True)
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+                return None
+        _, stderr = process.communicate()
+    except KeyboardInterrupt:
+        terminate_process_tree(process, force=True)
+        finish_terminated_process(process)
+        raise
+    if process.returncode != 0:
+        detail = (stderr or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or "git diff failed")
+    return bytes(output).decode("utf-8", errors="replace")
+
+
+def sanitize_text(text: str) -> str:
+    """Remove terminal control sequences before reports reach Codex or logs."""
+    text = ANSI_OSC_ESCAPE.sub("", str(text))
+    text = ANSI_ESCAPE.sub("", text)
+    return "".join(character for character in text if character in "\r\n\t" or ord(character) >= 32)
 
 
 def find_repo_root() -> Path:
@@ -264,7 +404,11 @@ def build_path_diff(repo: Path, path: Path, unified: int = DIFF_CONTEXT_LINES) -
         absolute = (repo / path).resolve()
         if not absolute.is_file() or absolute.is_symlink():
             return ""
-        content = absolute.read_text(encoding="utf-8", errors="replace")
+        with absolute.open("rb") as stream:
+            raw_content = stream.read(MAX_DIFF_BYTES + 1)
+        if len(raw_content) > MAX_DIFF_BYTES:
+            return f"diff --git a/{path} b/{path}\n[diff omitted: file exceeds {MAX_DIFF_BYTES} bytes]\n"
+        content = raw_content.decode("utf-8", errors="replace")
         if "\x00" in content:
             return ""
         lines = content.splitlines(keepends=True)
@@ -282,7 +426,7 @@ def build_path_diff(repo: Path, path: Path, unified: int = DIFF_CONTEXT_LINES) -
             f"@@ -0,0 +1,{line_count} @@\n"
             f"{body}"
         )
-    result = run_git(
+    result = bounded_git_output(
         repo,
         [
             "diff",
@@ -294,9 +438,9 @@ def build_path_diff(repo: Path, path: Path, unified: int = DIFF_CONTEXT_LINES) -
             str(path),
         ],
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"git diff failed for {path}")
-    return result.stdout
+    if result is None:
+        return f"diff --git a/{path} b/{path}\n[diff omitted: generated diff exceeds {MAX_DIFF_BYTES} bytes]\n"
+    return result
 
 
 def file_section(path: Path, content: str) -> str:
@@ -348,15 +492,15 @@ def select_diff(
         if is_lockfile(path):
             notes.append(f"{path}: lockfile diff omitted by preflight")
             continue
-        diff = build_path_diff(repo, path, DIFF_CONTEXT_LINES)
-        if not diff:
-            continue
-        candidates.append((path_priority(path, explicit_paths), str(path), path, diff))
+        candidates.append((path_priority(path, explicit_paths), str(path), path))
 
     candidates.sort(key=lambda item: (-item[0], item[1]))
     chosen = []
     used = 0
-    for _, _, path, diff in candidates:
+    for _, _, path in candidates:
+        diff = build_path_diff(repo, path, DIFF_CONTEXT_LINES)
+        if not diff:
+            continue
         size = utf8_bytes(diff)
         if used + size <= budget:
             chosen.append(diff)
@@ -496,8 +640,18 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_PRINT_TIMEOUT,
         help=f"agy print-mode timeout duration (default: {DEFAULT_PRINT_TIMEOUT})",
     )
-    parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=DEFAULT_MAX_BYTES,
+        help=f"maximum consultation bundle size in bytes (default: {DEFAULT_MAX_BYTES}; max: {MAX_MAX_BYTES})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=f"provider timeout in seconds (default: {DEFAULT_TIMEOUT_SECONDS}; max: {MAX_TIMEOUT_SECONDS})",
+    )
     parser.add_argument(
         "--retries",
         type=int,
@@ -508,7 +662,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def compact_diagnostic(stderr: str, limit: int = 2_000) -> str:
-    detail = stderr.strip()
+    detail = sanitize_text(stderr).strip()
     if len(detail) <= limit:
         return detail
     return "..." + detail[-limit:]
@@ -525,7 +679,7 @@ def should_retry(failure: str) -> bool:
 def compact_report(text: str, max_findings: int = MAX_FINDINGS, max_chars: int = MAX_REPORT_CHARS) -> str:
     """Keep only the bounded report contract that Codex needs to review."""
     lines = []
-    for raw_line in text.replace("\r\n", "\n").splitlines():
+    for raw_line in sanitize_text(text).replace("\r\n", "\n").splitlines():
         line = re.sub(r"^\s*[-*]\s+", "", raw_line.strip().strip("`")).strip()
         if line:
             lines.append(re.sub(r"\s+", " ", line))
@@ -554,8 +708,10 @@ def compact_report(text: str, max_findings: int = MAX_FINDINGS, max_chars: int =
 
 def main() -> int:
     args = parse_args()
-    if args.max_bytes <= 0 or args.timeout <= 0:
-        return fail("--max-bytes and --timeout must be positive")
+    if args.max_bytes <= 0 or args.max_bytes > MAX_MAX_BYTES:
+        return fail(f"--max-bytes must be between 1 and {MAX_MAX_BYTES}")
+    if args.timeout <= 0 or args.timeout > MAX_TIMEOUT_SECONDS:
+        return fail(f"--timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds")
     if args.retries < 0 or args.retries > 2:
         return fail("--retries must be between 0 and 2")
     try:
@@ -590,21 +746,20 @@ def main() -> int:
             try:
                 with tempfile.TemporaryDirectory(prefix="codex-agy-consult-") as isolated_cwd:
                     materialize_selected_files(Path(isolated_cwd), selected)
-                    result = subprocess.run(
+                    result, timed_out = run_bounded_process(
                         command,
                         cwd=isolated_cwd,
-                        text=True,
-                        capture_output=True,
-                        timeout=remaining,
-                        check=False,
                         env=os.environ.copy(),
+                        timeout=remaining,
                     )
             except subprocess.TimeoutExpired:
                 model_failure = f"timed out after {args.timeout} seconds"
             except OSError as exc:
                 model_failure = f"could not start agy: {exc}"
             else:
-                if result.returncode != 0:
+                if timed_out:
+                    model_failure = f"timed out after {args.timeout} seconds"
+                elif result.returncode != 0:
                     detail = compact_diagnostic(result.stderr) or "agy returned no diagnostic"
                     model_failure = f"exited with status {result.returncode}: {detail}"
                 elif not result.stdout.strip():

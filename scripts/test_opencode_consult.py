@@ -33,14 +33,15 @@ def main() -> int:
     assert "/opencode" in command_text or "OpenCode Consultation" in command_text
 
     args = Namespace(models=None, variant=None)
-    assert module.DEFAULT_MODEL == "opencode/deepseek-v4-flash-free"
-    assert module.DEFAULT_VARIANT == "max"
+    assert module.DEFAULT_MODEL == "nvidia/thinkingmachines/inkling"
+    assert module.DEFAULT_VARIANT is None
     assert module.resolve_models(args) == [module.DEFAULT_MODEL]
-    assert module.resolve_variant(module.DEFAULT_MODEL, None) == "max"
+    assert module.resolve_variant(module.DEFAULT_MODEL, None) is None
     assert module.resolve_variant(module.DEFAULT_MODEL, "high") == "high"
     assert module.resolve_variant("opencode/mimo-v2.5-free", None) is None
     assert module.resolve_variant("opencode/mimo-v2.5-free", "high") == "high"
-    assert module.FREE_MODELS == (
+    assert module.KNOWN_MODELS == (
+        "nvidia/thinkingmachines/inkling",
         "opencode/laguna-s-2.1-free",
         "opencode/deepseek-v4-flash-free",
         "opencode/big-pickle",
@@ -69,13 +70,14 @@ def main() -> int:
         "--pure",
         "--dir",
         str(workspace),
-        "--variant",
-        module.DEFAULT_VARIANT,
         "payload",
     ]
     assert "--variant" not in module.build_command(
         "opencode", "opencode/mimo-v2.5-free", None, workspace, "payload"
     )
+    assert module.build_command(
+        "opencode", module.DEFAULT_MODEL, "high", workspace, "payload"
+    )[-2:] == ["high", "payload"]
 
     config = module.build_isolated_config(module.DEFAULT_MODEL)
     assert config["model"] == module.DEFAULT_MODEL
