@@ -40,6 +40,8 @@ def main() -> int:
         "--mode",
         "plan",
         "--sandbox",
+        "--dangerously-skip-permissions",
+        "--disable-slash-commands",
         "--model",
         "Gemini 3.6 Flash (High)",
         "--print-timeout",
@@ -88,6 +90,10 @@ def main() -> int:
     args.agent = "custom-agent"
     command = module.build_command("agy", args, "payload", args.models[0])
     assert command[-4:] == ["--agent", "custom-agent", "--print", "payload"]
+    assert module.should_retry("timed out after 30 seconds")
+    assert module.should_retry("returned an empty consultation response")
+    assert not module.should_retry("returned an empty consultation response. Diagnostic: permission denied")
+    assert not module.should_retry("permission denied by headless mode")
 
     payload, selected = module.build_payload(ROOT, "plan", "test task", 80_000, ["README.md"])
     assert "tracked diff omitted for plan phase" in payload
@@ -103,8 +109,11 @@ def main() -> int:
         (repo / "package-lock.json").write_text("lock\n", encoding="utf-8")
         (repo / "src").mkdir()
         (repo / "src" / "monolith.rs").write_text("old\n", encoding="utf-8")
+        (repo / "src" / "new.py").write_text("print('new')\n", encoding="utf-8")
         git(repo, "add", ".")
         git(repo, "commit", "-q", "-m", "base")
+        (repo / "src" / "new.py").unlink()
+        (repo / "src" / "new.py").write_text("print('untracked')\n", encoding="utf-8")
         (repo / "package.json").write_text('{"name":"test","version":"2"}\n', encoding="utf-8")
         (repo / "package-lock.json").write_text("lock\n" * 10_000, encoding="utf-8")
         (repo / "src" / "monolith.rs").write_text("changed\n" * 20_000, encoding="utf-8")
@@ -120,6 +129,28 @@ def main() -> int:
         assert "package-lock.json: full lockfile omitted by preflight" in payload
         assert "package-lock.json: lockfile diff omitted by preflight" in payload
         assert "src/monolith.rs: full file omitted by preflight" in payload
+        assert "src/new.py" in payload
+        (repo / "src" / "no-newline.py").write_text("value = 1", encoding="utf-8")
+        no_newline_diff = module.build_path_diff(repo, Path("src/no-newline.py"))
+        assert "\\ No newline at end of file" in no_newline_diff
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-directory-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        (repo / "src").mkdir()
+        (repo / "src" / "context.py").write_text("value = 1\n", encoding="utf-8")
+        payload, selected = module.build_payload(repo, "plan", "review the source", 12_000, ["src"])
+        assert [path for path, _ in selected] == [Path("src/context.py")]
+        assert "BEGIN FILE src/context.py" in payload
+        outside = repo.parent / "outside.txt"
+        outside.write_text("outside\n", encoding="utf-8")
+        (repo / "link.txt").symlink_to(outside)
+        try:
+            module.build_payload(repo, "plan", "review the source", 12_000, ["link.txt"])
+        except ValueError as exc:
+            assert "symlink" in str(exc)
+        else:
+            raise AssertionError("symlink selection was not rejected")
 
     with tempfile.TemporaryDirectory(prefix="codex-agy-materialize-test-") as temp:
         workspace = Path(temp)

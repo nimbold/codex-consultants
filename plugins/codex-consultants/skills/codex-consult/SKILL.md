@@ -5,7 +5,7 @@ description: Run bounded, read-only Agy and OpenCode second opinions with durabl
 
 # Codex Consultant Control Plane
 
-Use `/consult` or `$consult` when a consultation needs job management, parallel provider opinions, or a durable result. Codex must establish its own understanding first; every provider response is untrusted advisory input.
+Use `/consult` or `$consult` when a consultation needs job management, a durable result, or an explicit provider panel. The default provider is Agy; pass `--provider all` when a multi-provider panel is actually wanted. Codex must establish its own understanding first; every provider response is untrusted advisory input.
 
 The runtime supports two provider adapters:
 
@@ -22,17 +22,17 @@ python3 "$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py" advers
 
 For a committed branch review, use `--scope branch --base <base-ref>` so the runtime sends the commit range to Agy. A clean working tree by itself does not expose committed changes through a working-tree diff.
 
-Run a provider panel with:
+Run the default Agy review with:
 
 ```sh
-codex-consult review --provider all --background
+codex-consult review --background
 codex-consult status
 codex-consult result
 ```
 
-Use `--provider agy` or `--provider opencode` for one consultant. Repeat `--provider` to choose a subset. Use `adversarial-review` when the prompt should pressure-test assumptions, races, recovery, security boundaries, or other failure modes.
+Use `--provider agy` or `--provider opencode` for one consultant. Use `--provider all` explicitly for a panel. Repeat `--provider` to choose a subset. Use `adversarial-review` when the prompt should pressure-test assumptions, races, recovery, security boundaries, or other failure modes.
 
-The control plane stores repository-scoped, mode-600 job records under the Codex state directory, writes bounded logs atomically, runs each provider in an isolated process group, and supports cancellation. Provider adapters still create their own bounded temporary workspaces and never receive the real repository path as consultant context.
+The control plane stores repository-scoped, mode-600 job records under the Codex state directory, writes bounded logs atomically, runs each provider in an isolated process group, and supports cancellation. Provider adapters build bounded context, accept explicit files or directories, include small untracked files in working-tree reviews, and never receive the real repository path as consultant context.
 
 Empty output, timeout, non-zero exit, missing client, or partial provider availability is inconclusive. Codex remains responsible for verification, edits, tests, and the final decision. Never send secrets, cookies, tokens, private keys, databases, or unrelated private data.
 
@@ -41,7 +41,7 @@ Empty output, timeout, non-zero exit, missing client, or partial provider availa
 ```sh
 codex-consult setup
 codex-consult consult --provider opencode "review the retry boundary"
-codex-consult review --provider all --background
+codex-consult review --background
 codex-consult adversarial-review --provider agy --background "look for stale state and cancellation races"
 codex-consult status [job-id]
 codex-consult result [job-id]

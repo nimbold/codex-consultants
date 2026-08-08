@@ -39,6 +39,7 @@ Use the shared runtime for one consultant or a provider panel:
 codex-consult setup
 codex-consult consult --provider agy "review the retry boundary"
 codex-consult consult --provider opencode "challenge this design"
+codex-consult review --background
 codex-consult review --provider all --background
 codex-consult adversarial-review --provider all --background "look for stale state, cancellation, and security gaps"
 codex-consult status
@@ -46,7 +47,7 @@ codex-consult result
 codex-consult cancel <job-id>
 ```
 
-The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$consult` and have Codex run the corresponding runtime operation. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
+The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$consult` and have Codex run the corresponding runtime operation. Agy is the default provider; use `--provider opencode` or `--provider all` explicitly for other routes. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
 The existing `$agy-consult` and `$opencode-consult` skills remain available only through the optional manual installer for direct provider-specific consultations. They are not advertised by the plugin picker. `/opencode` remains as a compatibility command for command-capable/manual installations.
 
@@ -57,7 +58,7 @@ The reusable review prompts live in `plugins/codex-consultants/skills/codex-cons
 Normal review before shipping:
 
 ```sh
-codex-consult review --provider all --scope working-tree --background
+codex-consult review --scope working-tree --background
 codex-consult status
 codex-consult result
 ```
@@ -97,11 +98,11 @@ The shared control plane owns the lifecycle that the provider adapters should no
 
 - repository-scoped, mode-600 job records under the Codex state directory;
 - atomic state writes, bounded logs, session-aware status filtering, and stale-worker reconciliation;
-- foreground or detached background jobs with provider fan-out and partial-success reporting;
+- foreground or detached background jobs with explicit provider fan-out and partial-success reporting;
 - process-group cancellation across the worker and provider subprocesses;
 - durable `status`, `result`, `cancel`, and `setup` operations.
 
-Each adapter still builds a bounded task bundle, omits sensitive paths and full lockfiles, materializes only selected context into a temporary workspace, and uses provider-specific read-only configuration. The real repository path is not supplied as consultant context.
+Each adapter builds a bounded task bundle, accepts relevant file or directory selections, includes small untracked files in working-tree reviews, omits sensitive paths and full lockfiles, materializes only selected context into a temporary workspace, and uses provider-specific read-only configuration. The real repository path is not supplied as consultant context.
 
 Empty output, timeouts, non-zero exits, missing clients, and partial provider availability are inconclusive. Codex must independently verify every actionable claim against live source, tests, logs, and repository state.
 
@@ -112,8 +113,10 @@ The optional installer adds the control-plane skill, provider skills, launchers,
 ```sh
 git clone https://github.com/nimbold/codex-consultants.git
 cd codex-consultants
-./scripts/install.sh --install-guidance
+./scripts/install.sh
 ```
+
+The optional `--install-guidance` flag adds a small explicit-invocation policy to the global `AGENTS.md`; it is not required for the plugin and is best left off when minimizing persistent Codex context.
 
 The main launcher is `codex-consult`. Compatibility launchers remain available as `codex-agy-consult`, `codex-opencode`, and `codex-opencode-consult`.
 

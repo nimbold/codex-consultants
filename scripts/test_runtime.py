@@ -50,7 +50,8 @@ def options(**overrides):
 
 def main() -> int:
     module = load_module()
-    assert module.provider_names(None) == ["agy", "opencode"]
+    assert module.provider_names(None) == ["agy"]
+    assert module.provider_names(["all"]) == ["agy", "opencode"]
     assert module.provider_names(["agy", "opencode", "agy"]) == ["agy", "opencode"]
     assert module.provider_names(["agy,opencode"]) == ["agy", "opencode"]
     assert module.prompt_template("review").startswith("Perform a normal")

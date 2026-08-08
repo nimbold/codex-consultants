@@ -24,6 +24,7 @@ MAX_MODELS = 2
 MAX_FINDINGS = 4
 MAX_REPORT_CHARS = 6_000
 MAX_FULL_CONTEXT_FILE_BYTES = 24_000
+MAX_DIRECTORY_FILES = 128
 CONTEXT_BUDGET_RATIO = 0.35
 DIFF_BUDGET_RATIO = 0.45
 DIFF_CONTEXT_LINES = 20
@@ -56,6 +57,26 @@ SENSITIVE_NAMES = {
     "cookies.txt",
 }
 SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".sqlite", ".sqlite3", ".db")
+RETRYABLE_FAILURE_MARKERS = (
+    "timed out",
+    "temporarily unavailable",
+    "connection reset",
+    "connection refused",
+    "network",
+    "rate limit",
+    "too many requests",
+    "status 429",
+    "status 502",
+    "status 503",
+)
+NON_RETRYABLE_FAILURE_MARKERS = (
+    "permission",
+    "context",
+    "insufficient",
+    "invalid",
+    "not found",
+    "not a regular",
+)
 
 
 def fail(message: str, code: int = 2) -> int:
@@ -138,33 +159,129 @@ def changed_paths(repo: Path) -> list[Path]:
         raise RuntimeError(result.stderr.strip() or "git diff path discovery failed")
 
     paths = []
+    seen = set()
     for item in result.stdout.split("\0"):
         if not item:
             continue
         path = Path(item)
-        if not is_sensitive(path):
+        if not is_sensitive(path) and path not in seen:
             paths.append(path)
+            seen.add(path)
+
+    untracked = run_git(repo, ["ls-files", "--others", "--exclude-standard", "-z", "--"])
+    if untracked.returncode != 0:
+        raise RuntimeError(untracked.stderr.strip() or "untracked path discovery failed")
+    for item in untracked.stdout.split("\0"):
+        if not item:
+            continue
+        path = Path(item)
+        if not is_sensitive(path) and path not in seen:
+            paths.append(path)
+            seen.add(path)
     return paths
 
 
-def read_selected_paths(repo: Path, raw_paths: list[str]) -> list[tuple[Path, str]]:
-    selected = []
+def expand_requested_paths(repo: Path, raw_paths: list[str], notes: list[str]) -> list[Path]:
+    """Resolve explicit files and bounded directory selections safely."""
+    expanded = []
     seen = set()
     for raw in raw_paths:
+        raw_candidate = repo / raw
+        if raw_candidate.is_symlink():
+            raise ValueError(f"refusing to include symlink path: {raw}")
         path = relative_path(repo, raw)
         if is_sensitive(path):
             raise ValueError(f"refusing to include sensitive path: {path}")
         absolute = (repo / path).resolve()
-        if not absolute.is_file():
-            raise ValueError(f"selected path is not a regular file: {path}")
+        if absolute.is_file():
+            candidates = [path]
+        elif absolute.is_dir():
+            candidates = []
+            sensitive_count = 0
+            outside_count = 0
+            capped = False
+            for candidate in sorted(absolute.rglob("*")):
+                if not candidate.is_file() or candidate.is_symlink():
+                    continue
+                try:
+                    relative = candidate.resolve().relative_to(repo)
+                except ValueError:
+                    outside_count += 1
+                    continue
+                if is_sensitive(relative):
+                    sensitive_count += 1
+                    continue
+                candidates.append(relative)
+                if len(candidates) >= MAX_DIRECTORY_FILES:
+                    capped = True
+                    break
+            if capped:
+                notes.append(
+                    f"{path}: directory selection capped at {MAX_DIRECTORY_FILES} files"
+                )
+            if sensitive_count:
+                notes.append(f"{path}: {sensitive_count} sensitive path(s) omitted by preflight")
+            if outside_count:
+                notes.append(f"{path}: {outside_count} outside-repository path(s) omitted by preflight")
+            if not candidates:
+                notes.append(f"{path}: directory contains no regular files")
+        else:
+            raise ValueError(f"selected path is not a regular file or directory: {path}")
+
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            expanded.append(candidate)
+    return expanded
+
+
+def read_bounded_text(path: Path) -> str:
+    """Avoid loading files that preflight will reject at full size."""
+    with path.open("rb") as stream:
+        content = stream.read(MAX_FULL_CONTEXT_FILE_BYTES + 1)
+    return content.decode("utf-8", errors="replace")
+
+
+def read_selected_paths(
+    repo: Path, raw_paths: list[str], notes: list[str] | None = None
+) -> list[tuple[Path, str]]:
+    notes = notes if notes is not None else []
+    selected = []
+    seen = set()
+    for path in expand_requested_paths(repo, raw_paths, notes):
+        absolute = (repo / path).resolve()
         if path in seen:
             continue
         seen.add(path)
-        selected.append((path, absolute.read_text(encoding="utf-8", errors="replace")))
+        selected.append((path, read_bounded_text(absolute)))
     return selected
 
 
 def build_path_diff(repo: Path, path: Path, unified: int = DIFF_CONTEXT_LINES) -> str:
+    tracked = run_git(repo, ["ls-files", "--error-unmatch", "--", str(path)])
+    if tracked.returncode != 0:
+        absolute = (repo / path).resolve()
+        if not absolute.is_file() or absolute.is_symlink():
+            return ""
+        content = absolute.read_text(encoding="utf-8", errors="replace")
+        if "\x00" in content:
+            return ""
+        lines = content.splitlines(keepends=True)
+        if content and not lines:
+            lines = [content]
+        body = "".join(f"+{line}" for line in lines)
+        if content and not content.endswith("\n"):
+            body += "\n\\ No newline at end of file\n"
+        line_count = len(lines)
+        return (
+            f"diff --git a/{path} b/{path}\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            f"+++ b/{path}\n"
+            f"@@ -0,0 +1,{line_count} @@\n"
+            f"{body}"
+        )
     result = run_git(
         repo,
         [
@@ -254,7 +371,7 @@ def select_diff(
         else:
             notes.append(f"{path}: diff omitted by preflight diff budget")
 
-    return "\n\n".join(chosen) or "(no safe tracked diff supplied after preflight)"
+    return "\n\n".join(chosen) or "(no safe working-tree diff supplied after preflight)"
 
 
 def build_payload(
@@ -265,9 +382,9 @@ def build_payload(
     extra_paths: list[str],
 ) -> tuple[str, list[tuple[Path, str]]]:
     repo = repo.resolve()
-    selected = read_selected_paths(repo, extra_paths)
-    explicit_paths = {path for path, _ in selected}
     notes = []
+    selected = read_selected_paths(repo, extra_paths, notes)
+    explicit_paths = {path for path, _ in selected}
     context_budget = int(max_bytes * (0.70 if phase == "plan" else CONTEXT_BUDGET_RATIO))
     context_files = select_context_files(selected, explicit_paths, context_budget, notes)
     if phase == "plan":
@@ -335,6 +452,8 @@ def build_command(agy: str, args: argparse.Namespace, payload: str, model: str) 
         "--mode",
         "plan",
         "--sandbox",
+        "--dangerously-skip-permissions",
+        "--disable-slash-commands",
         "--model",
         model,
         "--print-timeout",
@@ -393,6 +512,14 @@ def compact_diagnostic(stderr: str, limit: int = 2_000) -> str:
     if len(detail) <= limit:
         return detail
     return "..." + detail[-limit:]
+
+
+def should_retry(failure: str) -> bool:
+    """Retry only failures that may change without changing the request."""
+    lowered = failure.lower()
+    if "returned an empty consultation response" in lowered:
+        return not any(marker in lowered for marker in NON_RETRYABLE_FAILURE_MARKERS)
+    return any(marker in lowered for marker in RETRYABLE_FAILURE_MARKERS)
 
 
 def compact_report(text: str, max_findings: int = MAX_FINDINGS, max_chars: int = MAX_REPORT_CHARS) -> str:
@@ -489,8 +616,10 @@ def main() -> int:
                     model_failure = None
                     break
 
-            if attempt < args.retries:
+            if attempt < args.retries and should_retry(model_failure or ""):
                 time.sleep(min(RETRY_DELAY_SECONDS, max(0.0, deadline - time.monotonic())))
+            else:
+                break
 
         if model_failure:
             unavailable.append(f"{model}: {model_failure}")

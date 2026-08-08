@@ -34,6 +34,7 @@ SKILLS_ROOT = PLUGIN_ROOT / "skills" if (PLUGIN_ROOT / "skills").is_dir() else P
 STATE_ENV = "CODEX_CONSULT_STATE_DIR"
 SESSION_ENV = "CODEX_CONSULT_SESSION_ID"
 PROVIDER_ORDER = ("agy", "opencode")
+DEFAULT_PROVIDER = "agy"
 PROVIDER_SCRIPTS = {
     "agy": SKILLS_ROOT / "agy-consult" / "scripts" / "agy_consult.py",
     "opencode": SKILLS_ROOT / "opencode-consult" / "scripts" / "opencode_consult.py",
@@ -351,7 +352,7 @@ def append_log(path: Path, message: str) -> None:
         pass
 
 
-def provider_names(values: list[str] | None, default: str = "all") -> list[str]:
+def provider_names(values: list[str] | None, default: str = DEFAULT_PROVIDER) -> list[str]:
     requested = values or [default]
     names: list[str] = []
     for raw in requested:
@@ -956,6 +957,11 @@ def launch_or_run(repo: Path, kind: str, providers: list[str], task: str, option
         print(f"Worker continues in the background for job {job_id}; use `codex-consult cancel {job_id}` to stop it.", file=sys.stderr)
         return 130
     job = load_job(repo, job_id) or {}
+    if job.get("status") in ACTIVE_STATUSES:
+        try:
+            job = reconcile(repo, job)
+        except (OSError, RuntimeError, ValueError):
+            pass
     if options.json:
         print(json.dumps(job, indent=2, sort_keys=True))
     else:
@@ -964,7 +970,11 @@ def launch_or_run(repo: Path, kind: str, providers: list[str], task: str, option
 
 
 def add_execution_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", action="append", help="agy, opencode, or all; repeatable (default: all)")
+    parser.add_argument(
+        "--provider",
+        action="append",
+        help="agy, opencode, or all; repeatable (default: agy; use all explicitly for a panel)",
+    )
     parser.add_argument("--phase", choices=("plan", "diff"), default="diff")
     parser.add_argument("--scope", choices=("auto", "working-tree", "branch"), default="auto")
     parser.add_argument("--base", help="branch/ref used for clean branch reviews")
@@ -1108,7 +1118,7 @@ def main(argv: list[str] | None = None) -> int:
             task = prompt_template("adversarial-review").replace("{focus}", focus)
         target_context = review_target_context(repo, args.scope, args.base, args.max_bytes)
         task = f"{task}\n\nREVIEW TARGET CONTEXT:\n{target_context}"
-        providers = provider_names(args.provider, default="all")
+        providers = provider_names(args.provider)
         return launch_or_run(repo, args.command, providers, task, args)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"codex-consult: {exc}", file=sys.stderr)

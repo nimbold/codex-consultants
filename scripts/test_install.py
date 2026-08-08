@@ -70,6 +70,9 @@ def main() -> int:
         assert manifest["skills"] == "./skills/codex-consult"
         command_text = (ROOT / "plugins" / "codex-consultants" / "commands" / "consult-review.md").read_text(encoding="utf-8")
         assert '"$PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py"' in command_text
+        assert "review --provider all" not in command_text
+        adversarial_command = (ROOT / "plugins" / "codex-consultants" / "commands" / "consult-adversarial-review.md").read_text(encoding="utf-8")
+        assert "adversarial-review --provider all" not in adversarial_command
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")
         control_skill = (codex_home / "skills" / "codex-consult" / "SKILL.md").read_text(encoding="utf-8")
         opencode_skill = (codex_home / "skills" / "opencode-consult" / "SKILL.md").read_text(encoding="utf-8")

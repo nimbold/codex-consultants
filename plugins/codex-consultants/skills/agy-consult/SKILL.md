@@ -28,6 +28,6 @@ For direct adapter debugging, the bundled `scripts/agy_consult.py` wrapper remai
 
 Use `codex-consult status`, `codex-consult result`, and `codex-consult cancel` for jobs started through the control plane.
 
-The wrapper sends a bounded bundle, omits sensitive paths and oversized or lockfile context, and runs Agy in an isolated temporary plan/sandbox workspace. Empty output, timeouts, non-zero exits, and oversized bundles are inconclusive; they are never treated as findings.
+The wrapper sends a bounded bundle, accepts relevant file or directory paths, includes small untracked files in working-tree reviews, omits sensitive or oversized lockfile context, and runs Agy in an isolated temporary plan/sandbox workspace. Headless mode auto-approves only inside that sandbox so read-only consultations do not stall on an unavailable permission prompt. Empty output, timeouts, non-zero exits, and oversized bundles are inconclusive; they are never treated as findings.
 
 Keep the consultation explicit, bounded, and brief. Do not invoke it implicitly for routine work.
