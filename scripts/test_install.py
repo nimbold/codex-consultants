@@ -74,6 +74,7 @@ def main() -> int:
         adversarial_command = (ROOT / "plugins" / "codex-consultants" / "commands" / "consult-adversarial-review.md").read_text(encoding="utf-8")
         assert "adversarial-review --provider all" not in adversarial_command
         installed_skill = (codex_home / "skills" / "agy-consult" / "SKILL.md").read_text(encoding="utf-8")
+        installed_adapter = (codex_home / "skills" / "agy-consult" / "scripts" / "agy_consult.py").read_text(encoding="utf-8")
         control_skill = (codex_home / "skills" / "codex-consult" / "SKILL.md").read_text(encoding="utf-8")
         opencode_skill = (codex_home / "skills" / "opencode-consult" / "SKILL.md").read_text(encoding="utf-8")
         assert "Explicit invocation only" in installed_skill
@@ -84,6 +85,7 @@ def main() -> int:
         assert "name: consult" in control_skill
         assert "$codex-consult" not in control_skill
         assert "$agy-consult" in installed_skill
+        assert 'DEFAULT_MODEL = "Gemini 3.7 Flash (High)"' in installed_adapter
         assert "$opencode-consult" in opencode_skill
         assert "nvidia/thinkingmachines/inkling" in opencode_skill
         assert "reasoning support" in opencode_skill

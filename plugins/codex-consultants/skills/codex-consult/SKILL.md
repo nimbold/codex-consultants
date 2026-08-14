@@ -9,7 +9,7 @@ Use `/consult` or `$consult` when a consultation needs job management, a durable
 
 The runtime supports two provider adapters:
 
-- `agy` — Antigravity, default Gemini 3.6 Flash High.
+- `agy` — Antigravity, default `Gemini 3.7 Flash (High)`.
 - `opencode` — NVIDIA `nvidia/thinkingmachines/inkling` (`Inkling`) by default. OpenCode reports reasoning support for this model, but its current catalog exposes no selectable variant, so no reasoning variant is injected.
 
 This is the canonical Codex Desktop skill entry for the plugin. Before running the bundled runtime from a plugin-only installation, set `PLUGIN_ROOT` to the absolute installed plugin directory. The script path is `python3 $PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py`. The manual installer additionally provides the `codex-consult` launcher.
