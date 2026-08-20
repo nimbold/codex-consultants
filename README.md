@@ -49,7 +49,7 @@ codex-consult cancel <job-id>
 
 The control-plane commands mirror these entrypoints as `/consult`, `/consult-review`, `/consult-adversarial-review`, `/consult-status`, `/consult-result`, `/consult-cancel`, and `/consult-setup` where the host supports plugin commands. In Codex Desktop, use the native `/consult` skill or `$consult` and have Codex run the corresponding runtime operation. Agy is the default provider; use `--provider opencode` or `--provider all` explicitly for other routes. Use `--wait` with `--background` to retain durable job state while waiting for completion. Use `--json` for automation.
 
-The existing `$agy-consult` and `$opencode-consult` skills remain available only through the optional manual installer for direct provider-specific consultations. They are not advertised by the plugin picker. `/opencode` remains as a compatibility command for command-capable/manual installations.
+Note: The existing `$agy-consult` and `$opencode-consult` skills remain available only through the optional manual installer for direct provider-specific consultations. They are not advertised by the plugin picker. `/opencode` remains as a compatibility command for command-capable/manual installations.
 
 ## Prompts and use cases
 
