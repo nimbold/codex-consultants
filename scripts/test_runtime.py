@@ -52,6 +52,9 @@ def options(**overrides):
 
 def main() -> int:
     module = load_module()
+    parsed_defaults = module.parse_args(["consult", "test task"])
+    assert parsed_defaults.retries is None
+    assert parsed_defaults.print_timeout == "240s"
     assert module.provider_names(None) == ["agy"]
     assert module.provider_names(["all"]) == ["agy", "opencode"]
     assert module.provider_names(["agy", "opencode", "agy"]) == ["agy", "opencode"]
@@ -67,8 +70,9 @@ def main() -> int:
     assert module.prompt_template("review").startswith("Perform a normal")
     assert "adversarial" in module.prompt_template("adversarial-review").lower()
     assert ("start_new_session" in module.process_group_kwargs()) == (os.name != "nt")
-    diagnostic = module.compact("token=abc123 Authorization: Bearer sk_test_123")
-    assert "token=[redacted]" in diagnostic and "[redacted-token]" in diagnostic
+    diagnostic = module.compact("token=abc123 Authorization: Bearer sk-proj-test123")
+    assert diagnostic == "token=[redacted] Authorization=[redacted]"
+    assert module.compact("AWS_SECRET_ACCESS_KEY=hidden") == "AWS_SECRET_ACCESS_KEY=[redacted]"
     assert module.compact("\x1b[31mREPORT: safe output\x1b[0m") == "REPORT: safe output"
 
     with tempfile.TemporaryDirectory(prefix="codex-consult-runtime-test-") as temp:
@@ -78,16 +82,23 @@ def main() -> int:
         fake = root / "fake_provider.py"
         fake.write_text(
             "import sys, time\n"
-            "if 'sleep' in sys.argv:\n"
+            "task = sys.stdin.read()\n"
+            "if 'sleep' in task:\n"
             "    time.sleep(30)\n"
-            "if 'fail' in sys.argv:\n"
+            "if 'fail' in task:\n"
             "    print('synthetic failure', file=sys.stderr)\n"
             "    raise SystemExit(7)\n"
+            f"if 'noisy' in task:\n    print('x' * {module.MAX_PROVIDER_STDOUT_BYTES + 1024})\n    raise SystemExit(0)\n"
             "print('REPORT: synthetic provider completed')\n"
             "print('FINDING: LOW | FACT | test.py:1 | synthetic evidence | no impact | normal only | high | verify')\n",
             encoding="utf-8",
         )
         module.PROVIDER_SCRIPTS = {provider: fake for provider in module.PROVIDER_ORDER}
+        provider_command = module.build_provider_command("agy", "private task payload", options(), root)
+        assert "private task payload" not in provider_command
+        assert provider_command[provider_command.index("--retries") + 1] == "0"
+        default_command = module.build_provider_command("agy", "private task payload", options(retries=None), root)
+        assert "--retries" not in default_command
 
         review_repo = root / "review-repo"
         review_repo.mkdir()
@@ -162,6 +173,20 @@ def main() -> int:
         with active_lock:
             assert active == {}
         assert module.load_job(root, race_id)["providerPids"] == {}
+
+        noisy_id = module.create_job(root, "review", ["agy"], "noisy", job_options)
+        noisy_result = module.run_provider(
+            "agy",
+            "noisy",
+            options(job_id=noisy_id),
+            root,
+            {},
+            threading.Lock(),
+            threading.Event(),
+        )
+        assert noisy_result["status"] == "completed"
+        assert len(noisy_result["report"]) <= module.MAX_REPORT_CHARS
+        assert "context truncated" in noisy_result["report"]
 
         assert module.run_worker(root, job_id) == 0
         finished = module.load_job(root, job_id)

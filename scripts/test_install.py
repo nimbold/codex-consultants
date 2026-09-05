@@ -85,7 +85,10 @@ def main() -> int:
         assert "name: consult" in control_skill
         assert "$codex-consult" not in control_skill
         assert "$agy-consult" in installed_skill
-        assert 'DEFAULT_MODEL = "Gemini 3.7 Flash (High)"' in installed_adapter
+        assert 'DEFAULT_MODEL = "gemini-3.8-flash-high"' in installed_adapter
+        assert 'DEFAULT_MODEL_LABEL = "Gemini 3.8 Flash (High)"' in installed_adapter
+        assert '"--output-format"' in installed_adapter
+        assert "materialize_repository_snapshot" in installed_adapter
         assert "$opencode-consult" in opencode_skill
         assert "nvidia/thinkingmachines/inkling" in opencode_skill
         assert "reasoning support" in opencode_skill

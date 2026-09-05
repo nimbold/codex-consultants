@@ -1,6 +1,6 @@
 {
   "name": "codex-consultants",
-  "version": "0.1.0+codex.20260814081118",
+  "version": "0.1.0+codex.20260905183836",
   "description": "Use bounded, read-only Agy consultations by default, with explicit OpenCode or multi-provider panels and durable review jobs while Codex remains the primary investigator and implementer.",
   "author": {
     "name": "Codex Consultants contributors"
@@ -27,7 +27,7 @@
   "interface": {
     "displayName": "Codex Consultants",
     "shortDescription": "Read-only Agy and OpenCode reviews with job controls",
-    "longDescription": "Run bounded Agy reviews from Codex by default, or explicitly choose OpenCode and multi-provider panels. Provider adapters use isolated sandboxes, bounded context preflight, atomic repository-scoped job state, background execution, status/result/cancel controls, and adversarial prompts while Codex independently validates findings, makes changes, and runs tests.",
+    "longDescription": "Run bounded Agy reviews from Codex by default, or explicitly choose OpenCode and multi-provider panels. Agy receives prioritized evidence from a secret-filtered disposable repository snapshot over stdin and returns structured results without blanket tool approval; provider jobs use isolated sandboxes, bounded context preflight, atomic repository-scoped state, background execution, status/result/cancel controls, and adversarial prompts while Codex independently validates findings, makes changes, and runs tests.",
     "developerName": "Codex Consultants contributors",
     "category": "Developer Tools",
     "capabilities": [

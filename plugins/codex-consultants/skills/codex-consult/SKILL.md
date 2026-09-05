@@ -9,7 +9,7 @@ Use `/consult` or `$consult` when a consultation needs job management, a durable
 
 The runtime supports two provider adapters:
 
-- `agy` — Antigravity, default `Gemini 3.7 Flash (High)`.
+- `agy` — Antigravity, default `Gemini 3.8 Flash (High)` via the stable `gemini-3.8-flash-high` slug.
 - `opencode` — NVIDIA `nvidia/thinkingmachines/inkling` (`Inkling`) by default. OpenCode reports reasoning support for this model, but its current catalog exposes no selectable variant, so no reasoning variant is injected.
 
 This is the canonical Codex Desktop skill entry for the plugin. Before running the bundled runtime from a plugin-only installation, set `PLUGIN_ROOT` to the absolute installed plugin directory. The script path is `python3 $PLUGIN_ROOT/skills/codex-consult/scripts/consultant_runtime.py`. The manual installer additionally provides the `codex-consult` launcher.
@@ -32,7 +32,7 @@ codex-consult result
 
 Use `--provider agy` or `--provider opencode` for one consultant. Use `--provider all` explicitly for a panel. Repeat `--provider` to choose a subset. Use `adversarial-review` when the prompt should pressure-test assumptions, races, recovery, security boundaries, or other failure modes.
 
-The control plane stores repository-scoped, mode-600 job records under the Codex state directory, writes bounded logs atomically, runs each provider in an isolated process group, and supports cancellation. Provider adapters build bounded context, accept explicit files or directories, include small untracked files in working-tree reviews, and never receive the real repository path as consultant context.
+The control plane stores repository-scoped, mode-600 job records under the Codex state directory, writes bounded logs atomically, runs each provider in an isolated process group, and supports cancellation. Agy receives prioritized diff and file evidence from a bounded, secret-filtered disposable snapshot over stdin, under a no-tool structured-output contract; it never receives the real repository path as consultant context. Blanket Agy permission bypass is not enabled. Provider output is memory-bounded, and explicit paths prioritize snapshot content within the configured prompt budget.
 
 Empty output, timeout, non-zero exit, missing client, or partial provider availability is inconclusive. Codex remains responsible for verification, edits, tests, and the final decision. Never send secrets, cookies, tokens, private keys, databases, or unrelated private data.
 

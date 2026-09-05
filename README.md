@@ -6,7 +6,7 @@ Codex remains the primary investigator, implementer, tester, and decision-maker.
 
 ## Providers
 
-- Agy — Antigravity, default `Gemini 3.7 Flash (High)`.
+- Agy — Antigravity, default `Gemini 3.8 Flash (High)` via the stable `gemini-3.8-flash-high` slug.
 - OpenCode — NVIDIA (NIM) `nvidia/thinkingmachines/inkling` (`Inkling`) by default.
 
 Install and authenticate each client separately; the plugin does not bundle or configure them.
@@ -102,9 +102,9 @@ The shared control plane owns the lifecycle that the provider adapters should no
 - process-group cancellation across the worker and provider subprocesses;
 - durable `status`, `result`, `cancel`, and `setup` operations.
 
-Each adapter builds a bounded task bundle, accepts relevant file or directory selections, includes small untracked files in working-tree reviews, omits sensitive paths and full lockfiles, materializes only selected context into a temporary workspace, and uses provider-specific read-only configuration. The real repository path is not supplied as consultant context.
+The Agy adapter follows the official Codex-for-Claude integration's strongest safety and lifecycle patterns without copying its Claude-specific packaging. It builds a disposable, bounded snapshot of tracked and untracked repository files, then embeds prioritized diff and file evidence into Agy's stdin stream so headless review needs no tool permissions. Secrets, repository-supplied Agy control files, ignored files, symlinks, and oversized files are omitted; the real checkout is never mounted and blanket permission bypass is never requested. Output capture is memory-bounded, Agy returns schema-validated stream JSON with its conversation ID, and transient failures receive one bounded retry by default.
 
-Empty output, timeouts, non-zero exits, missing clients, and partial provider availability are inconclusive. Codex must independently verify every actionable claim against live source, tests, logs, and repository state.
+OpenCode retains its provider-specific bounded context and isolated configuration. Empty output, malformed structured output, timeouts, non-zero exits, missing clients, and partial provider availability remain inconclusive. Codex must independently verify every actionable claim against live source, tests, logs, and repository state.
 
 ## Manual installation
 

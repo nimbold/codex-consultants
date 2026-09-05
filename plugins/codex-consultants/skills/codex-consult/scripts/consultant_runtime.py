@@ -48,6 +48,8 @@ MAX_TARGET_CONTEXT_BYTES = 48_000
 MAX_MAX_BYTES = 2_000_000
 MAX_TIMEOUT_SECONDS = 1_800
 MAX_REPORT_CHARS = 6_000
+MAX_PROVIDER_STDOUT_BYTES = 256_000
+MAX_PROVIDER_STDERR_BYTES = 64_000
 JOB_ID_PATTERN = re.compile(r"^consult-[0-9]+-[0-9a-f]{8}$")
 SENSITIVE_NAMES = {".env", ".env.local", ".env.production", ".env.development", "credentials.json", "cookies.json", "cookies.txt"}
 LOCKFILE_NAMES = {"cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "poetry.lock", "gemfile.lock", "go.sum"}
@@ -66,9 +68,12 @@ DEFAULT_ADVERSARIAL_PROMPT = (
     "Do not edit files or assume missing context.\n\nFocus: {focus}"
 )
 SENSITIVE_DIAGNOSTIC = re.compile(
-    r"(?i)\b(api[_-]?key|token|secret|password|authorization|bearer)\s*[:=]\s*([^\s,;]+)"
+    r"(?i)\b([a-z0-9_-]*(?:token|api[_-]?key|authorization|password|secret)[a-z0-9_-]*)"
+    r"\s*(?:[=:]|\s)\s*(?:(?:bearer|basic)\s+)?([^\s,;]+)"
 )
-KNOWN_TOKEN = re.compile(r"\b(?:sk|gh[pousr]|xox[baprs])_[A-Za-z0-9_-]+\b")
+KNOWN_TOKEN = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_-]+|gh[pousr]_[A-Za-z0-9_-]+|xox[baprs]-[A-Za-z0-9_-]+|glpat-[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]+|AKIA[A-Z0-9]{16})\b"
+)
 ANSI_OSC_ESCAPE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 
@@ -421,9 +426,9 @@ def build_provider_command(provider: str, task: str, options: argparse.Namespace
         str(options.max_bytes),
         "--timeout",
         str(options.timeout),
-        "--retries",
-        str(options.retries),
     ]
+    if options.retries is not None:
+        command.extend(["--retries", str(options.retries)])
     if provider == "agy":
         if options.print_timeout:
             command.extend(["--print-timeout", options.print_timeout])
@@ -436,7 +441,6 @@ def build_provider_command(provider: str, task: str, options: argparse.Namespace
         command.extend(["--model", model])
     for path in options.path or []:
         command.extend(["--path", path])
-    command.extend(["--", task])
     return command
 
 
@@ -481,29 +485,107 @@ def terminate_pid(pid: int | None, *, force: bool = False) -> bool:
         return False
 
 
-def reap_process(process: subprocess.Popen[str], timeout: float = 2.0) -> tuple[str, str]:
-    """Drain a provider after termination without leaving a zombie or open pipes."""
+def _drain_bounded_stream(
+    stream: Any,
+    limit: int,
+    destination: dict[str, Any],
+    key: str,
+    *,
+    keep_tail: bool,
+) -> None:
+    retained = bytearray()
+    total = 0
     try:
-        stdout, stderr = process.communicate(timeout=max(0.1, timeout))
-        return stdout or "", stderr or ""
+        while True:
+            chunk = stream.read(64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if keep_tail:
+                retained.extend(chunk)
+                if len(retained) > limit:
+                    del retained[: len(retained) - limit]
+            elif len(retained) < limit:
+                retained.extend(chunk[: limit - len(retained)])
+    except (OSError, ValueError):
+        pass
+    destination[key] = (bytes(retained), total > limit)
+
+
+def collect_bounded_process_output(
+    process: subprocess.Popen[Any],
+    timeout: float,
+    input_text: str | None = None,
+) -> tuple[str, str, bool]:
+    """Drain provider pipes with fixed memory bounds and enforce tree cleanup."""
+    captured: dict[str, Any] = {}
+    readers = [
+        threading.Thread(
+            target=_drain_bounded_stream,
+            args=(process.stdout, MAX_PROVIDER_STDOUT_BYTES, captured, "stdout"),
+            kwargs={"keep_tail": False},
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_drain_bounded_stream,
+            args=(process.stderr, MAX_PROVIDER_STDERR_BYTES, captured, "stderr"),
+            kwargs={"keep_tail": True},
+            daemon=True,
+        ),
+    ]
+    for reader in readers:
+        reader.start()
+    writer = None
+    if input_text is not None and process.stdin is not None:
+        def write_input() -> None:
+            try:
+                process.stdin.write(input_text.encode("utf-8"))
+                process.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+            finally:
+                try:
+                    process.stdin.close()
+                except (OSError, ValueError):
+                    pass
+
+        writer = threading.Thread(target=write_input, daemon=True)
+        writer.start()
+    timed_out = False
+    try:
+        process.wait(timeout=max(0.1, timeout))
     except subprocess.TimeoutExpired:
-        terminate_pid(process.pid, force=True)
+        timed_out = True
+        terminate_pid(process.pid)
         try:
-            stdout, stderr = process.communicate(timeout=2)
-            return stdout or "", stderr or ""
+            process.wait(timeout=2)
         except subprocess.TimeoutExpired:
+            terminate_pid(process.pid, force=True)
             try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=1)
+                process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                pass
-            for stream in (process.stdout, process.stderr):
-                if stream is not None:
-                    stream.close()
-            return "", ""
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+    for reader in readers:
+        reader.join(timeout=2)
+    if writer is not None:
+        writer.join(timeout=2)
+
+    def decoded(key: str, marker: str) -> str:
+        raw, truncated = captured.get(key, (b"", False))
+        return raw.decode("utf-8", errors="replace") + (marker if truncated else "")
+
+    return (
+        decoded("stdout", "\n[provider stdout exceeded the capture limit]"),
+        decoded("stderr", "\n[provider stderr exceeded the capture limit]"),
+        timed_out,
+    )
 
 
 def pid_alive(pid: int | None) -> bool:
@@ -605,7 +687,7 @@ def run_provider(
     task: str,
     options: argparse.Namespace,
     repo: Path,
-    active: dict[str, subprocess.Popen[str]],
+    active: dict[str, subprocess.Popen[Any]],
     active_lock: threading.Lock,
     cancel_event: threading.Event,
 ) -> dict[str, Any]:
@@ -617,7 +699,7 @@ def run_provider(
         process = subprocess.Popen(
             command,
             cwd=repo,
-            text=True,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=os.environ.copy(),
@@ -633,36 +715,34 @@ def run_provider(
         update_job(repo, options.job_id, providerPids=provider_pids)
     except RuntimeError as exc:
         terminate_pid(process.pid)
-        reap_process(process)
+        collect_bounded_process_output(process, 2, task)
         with active_lock:
             active.pop(provider, None)
         return {"status": "failed", "error": f"could not record {provider} process: {exc}"}
     cancellation_requested = cancel_event.is_set() or cancel_marker(repo, options.job_id).exists()
     if cancellation_requested:
         terminate_pid(process.pid)
+    communicate_timeout = 5 if cancellation_requested else max(30, int(options.timeout) + 30)
+    stdout, stderr, timed_out = collect_bounded_process_output(process, communicate_timeout, task)
     try:
-        communicate_timeout = 5 if cancellation_requested else max(30, int(options.timeout) + 30)
-        stdout, stderr = process.communicate(timeout=communicate_timeout)
-    except subprocess.TimeoutExpired:
-        terminate_pid(process.pid)
-        stdout, stderr = reap_process(process)
-        result = {"status": "failed", "error": f"timed out after {options.timeout} seconds"}
-    else:
-        report = bounded_text(sanitize_text(stdout).strip(), MAX_REPORT_CHARS)
-        diagnostic = compact(stderr)
-        cancellation_requested = cancel_event.is_set() or cancel_marker(repo, options.job_id).exists()
-        if cancellation_requested:
-            result = {"status": "cancelled", "error": "cancellation requested during provider consultation"}
-        elif process.returncode == 0 and report:
-            result = {"status": "completed", "report": report}
-            if diagnostic:
-                result["diagnostic"] = diagnostic
+        if timed_out:
+            result = {"status": "failed", "error": f"timed out after {options.timeout} seconds"}
         else:
-            result = {
-                "status": "failed",
-                "exitCode": process.returncode,
-                "error": diagnostic or "provider returned no report",
-            }
+            report = bounded_text(sanitize_text(stdout).strip(), MAX_REPORT_CHARS)
+            diagnostic = compact(stderr)
+            cancellation_requested = cancel_event.is_set() or cancel_marker(repo, options.job_id).exists()
+            if cancellation_requested:
+                result = {"status": "cancelled", "error": "cancellation requested during provider consultation"}
+            elif process.returncode == 0 and report:
+                result = {"status": "completed", "report": report}
+                if diagnostic:
+                    result["diagnostic"] = diagnostic
+            else:
+                result = {
+                    "status": "failed",
+                    "exitCode": process.returncode,
+                    "error": diagnostic or "provider returned no report",
+                }
     finally:
         with active_lock:
             active.pop(provider, None)
@@ -718,7 +798,7 @@ def run_worker(repo: Path, job_id: str) -> int:
         return 1
     if job.get("status") == "cancelled":
         return 1
-    active: dict[str, subprocess.Popen[str]] = {}
+    active: dict[str, subprocess.Popen[Any]] = {}
     active_lock = threading.Lock()
     cancel_event = threading.Event()
 
@@ -1033,9 +1113,9 @@ def add_execution_options(parser: argparse.ArgumentParser) -> None:
         default=300,
         help=f"provider timeout in seconds (default: 300; max: {MAX_TIMEOUT_SECONDS})",
     )
-    parser.add_argument("--retries", type=int, default=0)
+    parser.add_argument("--retries", type=int, default=None, help="override the selected adapters' retry defaults")
     parser.add_argument("--variant", help="OpenCode reasoning variant")
-    parser.add_argument("--print-timeout", default="120s")
+    parser.add_argument("--print-timeout", default="240s")
     parser.add_argument("--agent")
     parser.add_argument("--background", action="store_true")
     parser.add_argument("--wait", action="store_true")
@@ -1161,8 +1241,7 @@ def main(argv: list[str] | None = None) -> int:
             or args.max_bytes > MAX_MAX_BYTES
             or args.timeout <= 0
             or args.timeout > MAX_TIMEOUT_SECONDS
-            or args.retries < 0
-            or args.retries > 2
+            or (args.retries is not None and (args.retries < 0 or args.retries > 2))
         ):
             raise ValueError(
                 f"max-bytes must be between 1 and {MAX_MAX_BYTES}; timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds; retries must be between 0 and 2"
