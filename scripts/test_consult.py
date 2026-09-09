@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test Agy snapshot, command, and structured-output behavior without invoking Agy."""
+"""Smoke-test Agy snapshot, command, and structured-output behavior offline."""
 
 from __future__ import annotations
 
@@ -30,6 +30,136 @@ def git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
 
+def run_fake_agy_integration(module) -> None:
+    fake_agy_source = """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+record_path = Path(os.environ["FAKE_AGY_RECORD"])
+stdin_text = sys.stdin.read()
+record_path.write_text(
+    json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "stdin": stdin_text}),
+    encoding="utf-8",
+)
+
+if "--mode" in sys.argv or os.environ.get("FAKE_AGY_FORCE_ERROR") == "1":
+    print(json.dumps({
+        "event": "result",
+        "result": {
+            "status": "ERROR",
+            "response": "",
+            "error": "Agent execution terminated due to error.",
+        },
+    }))
+    print("error: Agent execution terminated due to error.", file=sys.stderr)
+    raise SystemExit(1)
+
+events = [
+    {"event": "init", "conversation_id": "fake-conversation"},
+    {
+        "event": "result",
+        "result": {
+            "conversation_id": "fake-conversation",
+            "status": "SUCCESS",
+            "structured_output": {
+                "report": "Fake Agy completed successfully.",
+                "findings": [],
+                "uncertainty": "",
+            },
+        },
+    },
+]
+for event in events:
+    print(json.dumps(event), flush=True)
+"""
+    with tempfile.TemporaryDirectory(prefix="codex-agy-fake-cli-") as temp:
+        fake_dir = Path(temp)
+        fake_impl = fake_dir / "fake_agy.py"
+        fake_impl.write_text(fake_agy_source, encoding="utf-8")
+        if os.name == "nt":
+            fake_agy = fake_dir / "agy.cmd"
+            fake_agy.write_text(
+                f'@echo off\n"{sys.executable}" "{fake_impl}" %*\n',
+                encoding="utf-8",
+            )
+        else:
+            fake_agy = fake_dir / "agy"
+            fake_agy.write_text(fake_agy_source, encoding="utf-8")
+            fake_agy.chmod(0o755)
+        repo = fake_dir / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.com")
+        git(repo, "config", "user.name", "Test")
+        (repo / "README.md").write_text("fixture repository\n", encoding="utf-8")
+        git(repo, "add", "README.md")
+        git(repo, "commit", "-q", "-m", "base")
+        record = fake_dir / "invocation.json"
+        environment = os.environ.copy()
+        environment["PATH"] = f"{fake_dir}{os.pathsep}{environment.get('PATH', '')}"
+        environment["FAKE_AGY_RECORD"] = str(record)
+
+        def run_adapter(phase: str = "plan", force_error: bool = False) -> subprocess.CompletedProcess[str]:
+            run_environment = environment.copy()
+            if force_error:
+                run_environment["FAKE_AGY_FORCE_ERROR"] = "1"
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--phase",
+                    phase,
+                    "--path",
+                    "README.md",
+                    "--timeout",
+                    "10",
+                    "--retries",
+                    "0",
+                    "--max-bytes",
+                    "4_000",
+                    "return a concise report",
+                ],
+                cwd=repo,
+                env=run_environment,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
+
+        completed = run_adapter()
+        assert completed.returncode == 0, completed.stderr
+        assert "REPORT: Fake Agy completed successfully." in completed.stdout
+        invocation = json.loads(record.read_text(encoding="utf-8"))
+        command = invocation["argv"]
+        assert "--mode" not in command
+        assert "--sandbox" in command
+        assert "--dangerously-skip-permissions" not in command
+        assert command[command.index("--input-format") + 1] == "stream-json"
+        assert command[command.index("--output-format") + 1] == "stream-json"
+        assert "--json-schema" in command
+        assert command[command.index("--agent") + 1] == module.DEFAULT_AGENT
+        assert invocation["cwd"] != str(repo.resolve())
+        assert Path(invocation["cwd"]).name.startswith("codex-agy-consult-")
+        stream_events = [json.loads(line) for line in invocation["stdin"].splitlines()]
+        assert len(stream_events) == 1
+        assert stream_events[0]["event"] == "user"
+        assert "return a concise report" in stream_events[0]["message"]["content"][0]["text"]
+
+        (repo / "README.md").write_text("fixture repository changed\n", encoding="utf-8")
+        diff_completed = run_adapter(phase="diff")
+        assert diff_completed.returncode == 0, diff_completed.stderr
+        assert "REPORT: Fake Agy completed successfully." in diff_completed.stdout
+        diff_invocation = json.loads(record.read_text(encoding="utf-8"))
+        assert "diff --git a/README.md b/README.md" in diff_invocation["stdin"]
+
+        failed = run_adapter(force_error=True)
+        assert failed.returncode == 4
+        assert "Agent execution terminated due to error" in failed.stderr
+
+
 def main() -> int:
     module = load_module()
     args = Namespace(
@@ -41,20 +171,19 @@ def main() -> int:
     assert module.DEFAULT_MODEL_LABEL == "Gemini 3.8 Flash (High)"
     assert module.resolve_models(args) == ["gemini-3.8-flash-high"]
     command = module.build_command("/usr/local/bin/agy", args, module.DEFAULT_MODEL)
-    assert command[:7] == [
+    assert command[:5] == [
         "/usr/local/bin/agy",
-        "--mode",
-        "plan",
         "--sandbox",
         "--model",
         "gemini-3.8-flash-high",
         "--print-timeout",
     ]
+    assert "--mode" not in command
     assert "--disable-slash-commands" not in command
     assert "--dangerously-skip-permissions" not in command
-    assert command[7] == "240s"
-    assert command[8:12] == ["--input-format", "stream-json", "--output-format", "stream-json"]
-    assert json.loads(command[13]) == module.AGY_OUTPUT_SCHEMA
+    assert command[5] == "240s"
+    assert command[6:10] == ["--input-format", "stream-json", "--output-format", "stream-json"]
+    assert json.loads(command[11]) == module.AGY_OUTPUT_SCHEMA
     assert command[-2:] == ["--print", ""]
     assert command[-4:-2] == ["--agent", module.DEFAULT_AGENT]
     assert "payload" not in command
@@ -64,9 +193,17 @@ def main() -> int:
 
     args.models = ["gemini-3.8-flash-medium", "gemini-3.1-pro-high"]
     assert module.resolve_models(args) == args.models
-    args.agent = "custom-agent"
+    args.agent = module.DEFAULT_AGENT
     command = module.build_command("agy", args, args.models[0])
-    assert command[-4:] == ["--agent", "custom-agent", "--print", ""]
+    assert command[-4:] == ["--agent", module.DEFAULT_AGENT, "--print", ""]
+    args.agent = "custom-agent"
+    try:
+        module.build_command("agy", args, args.models[0])
+    except ValueError as exc:
+        assert "custom Agy agents are not supported" in str(exc)
+    else:
+        raise AssertionError("custom Agy agents must not bypass the read-only boundary")
+    run_fake_agy_integration(module)
 
     structured = {
         "conversation_id": "conversation-123",
@@ -102,6 +239,24 @@ def main() -> int:
         )
     )
     assert stream_report == report
+    outer_id_report = module.parse_agy_output(
+        "\n".join(
+            [
+                json.dumps({"event": "init", "conversation_id": "conversation-from-init"}),
+                "",
+                json.dumps(
+                    {
+                        "event": "result",
+                        "result": {
+                            "status": "SUCCESS",
+                            "structured_output": {"report": "Outer ID.", "findings": [], "uncertainty": ""},
+                        },
+                    }
+                ),
+            ]
+        )
+    )
+    assert outer_id_report.startswith("AGY_CONVERSATION: conversation-from-init\nREPORT: Outer ID.")
 
     fallback_envelope = {
         "conversation_id": "conversation-456",
@@ -116,6 +271,49 @@ def main() -> int:
         assert "temporary outage" in str(exc)
     else:
         raise AssertionError("unsuccessful Agy envelopes must fail")
+    try:
+        module.parse_agy_output(
+            "\n".join(
+                [
+                    json.dumps({"event": "init", "conversation_id": "conversation-789"}),
+                    json.dumps({"event": "error", "error": "rate limit from provider"}),
+                ]
+            )
+        )
+    except ValueError as exc:
+        assert "rate limit from provider" in str(exc)
+    else:
+        raise AssertionError("root-level stream errors must preserve their diagnostic")
+    try:
+        module.parse_agy_output(
+            json.dumps({"event": "result", "result": {"error": "quota exceeded"}})
+        )
+    except ValueError as exc:
+        assert "quota exceeded" in str(exc)
+    else:
+        raise AssertionError("nested stream errors without status must preserve their diagnostic")
+    try:
+        module.parse_agy_output(
+            "\n".join(
+                [
+                    json.dumps({"event": "error", "message": "upstream connect timeout"}),
+                    json.dumps(
+                        {
+                            "event": "result",
+                            "result": {
+                                "status": "ERROR",
+                                "error": "Agent execution terminated due to error.",
+                            },
+                        }
+                    ),
+                ]
+            )
+        )
+    except ValueError as exc:
+        assert "upstream connect timeout" in str(exc)
+        assert "Agent execution terminated" not in str(exc)
+    else:
+        raise AssertionError("specific stream failures must not be masked by generic termination")
     try:
         module.parse_agy_output(
             json.dumps(
@@ -156,6 +354,8 @@ def main() -> int:
     redacted = module.compact_diagnostic("\x1b]0;title\x07token=secret sk-proj-example")
     assert redacted == "token=[redacted] [redacted-token]"
     assert module.compact_diagnostic("AWS_SECRET_ACCESS_KEY=hidden") == "AWS_SECRET_ACCESS_KEY=[redacted]"
+    assert module.is_sensitive(Path(".ssh/config"))
+    assert module.is_sensitive(Path(".aws/credentials"))
 
     stdin_closed, timed_out = module.run_bounded_process(
         [sys.executable, "-c", "import sys; sys.stdin.read(); print('closed')"],
@@ -269,6 +469,13 @@ def main() -> int:
                 agent_path = workspace / ".agents" / "agents" / module.DEFAULT_AGENT / "agent.md"
                 assert agent_path.read_text(encoding="utf-8") == module.AGY_AGENT
                 assert "inheritCustomizations: false" in module.AGY_AGENT
+                assert "tools: []" in module.AGY_AGENT
+                assert "Do not call tools" in module.WORKSPACE_GUIDANCE
+                assert "view_file" not in module.WORKSPACE_GUIDANCE
+                assert "list_dir" not in module.AGY_AGENT
+                assert "inspect the snapshot directly" not in module.build_payload(
+                    repo, workspace, copied, "plan", "review the design", 80_000, focus_paths, notes
+                )
                 assert "write_to_file" not in module.AGY_AGENT
                 assert "run_command" not in module.AGY_AGENT
                 assert any("sensitive paths" in note for note in notes)
@@ -296,6 +503,27 @@ def main() -> int:
                     repo, workspace, copied, "plan", "review the design", 80_000, focus_paths, notes
                 )
                 assert "working-tree diff omitted for plan phase" in plan_payload
+
+            (repo / ".env").rename(repo / "renamed-secret.txt")
+            git(repo, "add", "-A")
+            redacted_status = module.safe_status(repo)
+            assert "[sensitive path omitted]" in redacted_status
+            assert ".env" not in redacted_status
+
+            unreadable = repo / "unreadable.py"
+            unreadable.write_text("private = True\n", encoding="utf-8")
+            original_open = Path.open
+
+            def deny_unreadable(self, *open_args, **open_kwargs):
+                if self == unreadable.resolve():
+                    raise PermissionError("synthetic unreadable fixture")
+                return original_open(self, *open_args, **open_kwargs)
+
+            Path.open = deny_unreadable
+            try:
+                assert module.build_path_diff(repo, Path("unreadable.py")) == ""
+            finally:
+                Path.open = original_open
         finally:
             module.MAX_WORKSPACE_FILE_BYTES = old_limit
 
@@ -311,6 +539,77 @@ def main() -> int:
             assert "symlink" in str(exc)
         else:
             raise AssertionError("symlink focus paths must be rejected")
+        if os.name != "nt":
+            (repo / ".git" / "private.txt").write_text("private git data\n", encoding="utf-8")
+            assert module.build_path_diff(repo, Path("safe/private.txt")) == ""
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-staged-edge-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        (repo / ".env").write_text("secret\n", encoding="utf-8")
+        (repo / "GEMINI.md").write_text("untrusted instructions\n", encoding="utf-8")
+        git(repo, "add", ".env", "GEMINI.md")
+        assert module.build_path_diff(repo, Path(".env")) == ""
+        assert module.build_path_diff(repo, Path("GEMINI.md")) == ""
+        (repo / "staged-then-removed.py").write_text("pending = True\n", encoding="utf-8")
+        git(repo, "add", "staged-then-removed.py")
+        (repo / "staged-then-removed.py").unlink()
+        removed_before_first_commit = module.build_path_diff(repo, Path("staged-then-removed.py"))
+        assert "deleted file mode" in removed_before_first_commit
+        assert "new file mode" not in removed_before_first_commit
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-deletion-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.com")
+        git(repo, "config", "user.name", "Test")
+        (repo / "removed.py").write_text("removed = True\n", encoding="utf-8")
+        git(repo, "add", "removed.py")
+        git(repo, "commit", "-q", "-m", "base")
+        git(repo, "rm", "-q", "removed.py")
+        deletion_diff = module.build_path_diff(repo, Path("removed.py"))
+        assert "deleted file mode" in deletion_diff
+        assert "-removed = True" in deletion_diff
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-large-deletion-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.com")
+        git(repo, "config", "user.name", "Test")
+        (repo / "large-removed.py").write_text("x" * (module.MAX_DIFF_BYTES + 1024), encoding="utf-8")
+        git(repo, "add", "large-removed.py")
+        git(repo, "commit", "-q", "-m", "base")
+        git(repo, "rm", "-q", "large-removed.py")
+        large_deletion_diff = module.build_path_diff(repo, Path("large-removed.py"))
+        assert large_deletion_diff.startswith("diff --git a/large-removed.py b/large-removed.py")
+        assert "[diff omitted: generated diff exceeds" in large_deletion_diff
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-large-change-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "test@example.com")
+        git(repo, "config", "user.name", "Test")
+        large_changed = repo / "large-changed.py"
+        large_changed.write_text("x" * (module.MAX_DIFF_BYTES + 1024), encoding="utf-8")
+        git(repo, "add", "large-changed.py")
+        git(repo, "commit", "-q", "-m", "base")
+        large_changed.write_text("y" * (module.MAX_DIFF_BYTES + 1024), encoding="utf-8")
+        large_change_diff = module.build_path_diff(repo, Path("large-changed.py"))
+        assert large_change_diff.startswith("diff --git a/large-changed.py b/large-changed.py")
+        assert "[diff omitted: generated diff exceeds" in large_change_diff
+
+    with tempfile.TemporaryDirectory(prefix="codex-agy-unborn-test-") as temp:
+        repo = Path(temp).resolve()
+        git(repo, "init", "-q")
+        (repo / "staged.py").write_text("staged = True\n", encoding="utf-8")
+        git(repo, "add", "staged.py")
+        (repo / "untracked.py").write_text("untracked = True\n", encoding="utf-8")
+        changed = module.changed_paths(repo)
+        assert changed == [Path("staged.py"), Path("untracked.py")]
+        notes = []
+        diff = module.select_diff(repo, changed, set(), 80_000, notes)
+        assert "+staged = True" in diff
+        assert "+untracked = True" in diff
 
     print("consult command smoke test: ok")
     return 0

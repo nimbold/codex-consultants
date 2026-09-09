@@ -59,6 +59,8 @@ def main() -> int:
     assert module.provider_names(["all"]) == ["agy", "opencode"]
     assert module.provider_names(["agy", "opencode", "agy"]) == ["agy", "opencode"]
     assert module.provider_names(["agy,opencode"]) == ["agy", "opencode"]
+    assert module.is_sensitive_path(".ssh/config")
+    assert module.is_sensitive_path(".aws/config")
     assert module.validate_job_id("consult-123-0123abcd") == "consult-123-0123abcd"
     for invalid_job_id in ("../escape", "consult-123/escape", "consult-123-not-hex"):
         try:
@@ -116,6 +118,23 @@ def main() -> int:
         assert "source.py" in branch_context
         assert "after" in branch_context
         assert len(module.review_target_context(review_repo, "working-tree", None, max_bytes=128).encode()) <= 128
+
+        status_repo = root / "status-repo"
+        status_repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=status_repo, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=status_repo, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=status_repo, check=True)
+        (status_repo / ".env").write_text("secret\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".env"], cwd=status_repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=status_repo, check=True)
+        (status_repo / ".env").rename(status_repo / "renamed-secret.txt")
+        subprocess.run(["git", "add", "-A"], cwd=status_repo, check=True)
+        (status_repo / ".ssh").mkdir()
+        (status_repo / ".ssh" / "config").write_text("private\n", encoding="utf-8")
+        safe_status = module.safe_status_text(status_repo)
+        assert "[sensitive path omitted]" in safe_status
+        assert ".env" not in safe_status
+        assert ".ssh/config" not in safe_status
 
         job_options = options()
         try:

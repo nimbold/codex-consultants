@@ -52,6 +52,7 @@ MAX_PROVIDER_STDOUT_BYTES = 256_000
 MAX_PROVIDER_STDERR_BYTES = 64_000
 JOB_ID_PATTERN = re.compile(r"^consult-[0-9]+-[0-9a-f]{8}$")
 SENSITIVE_NAMES = {".env", ".env.local", ".env.production", ".env.development", "credentials.json", "cookies.json", "cookies.txt"}
+SENSITIVE_COMPONENTS = {".aws", ".git", ".gnupg", ".ssh"}
 LOCKFILE_NAMES = {"cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "poetry.lock", "gemfile.lock", "go.sum"}
 SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".sqlite", ".sqlite3", ".db")
 DEFAULT_REVIEW_PROMPT = (
@@ -110,8 +111,14 @@ def run_git(repo: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def is_sensitive_path(path: str) -> bool:
     candidate = Path(path)
+    lowered_parts = tuple(part.lower() for part in candidate.parts)
     name = candidate.name.lower()
-    return name in SENSITIVE_NAMES or name in LOCKFILE_NAMES or name.endswith(SENSITIVE_SUFFIXES)
+    return (
+        any(part in SENSITIVE_COMPONENTS for part in lowered_parts)
+        or name in SENSITIVE_NAMES
+        or name in LOCKFILE_NAMES
+        or name.endswith(SENSITIVE_SUFFIXES)
+    )
 
 
 def bounded_text(text: str, limit: int) -> str:
@@ -128,13 +135,32 @@ def bounded_text(text: str, limit: int) -> str:
 
 
 def safe_status_text(repo: Path) -> str:
-    result = run_git(repo, ["status", "--short", "--untracked-files=all"])
+    result = run_git(repo, ["status", "--short", "-z", "--untracked-files=all"])
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or "could not read working-tree status")
+    records = [record for record in result.stdout.split("\0") if record]
     lines = []
-    for line in result.stdout.splitlines():
-        path_text = line[3:].split(" -> ", 1)[-1].strip() if len(line) >= 3 else ""
-        lines.append("[sensitive path omitted]" if is_sensitive_path(path_text) else line)
+    index = 0
+    while index < len(records):
+        record = records[index]
+        if len(record) < 3:
+            lines.append("[sensitive path omitted]" if is_sensitive_path(record) else record)
+            index += 1
+            continue
+
+        status = record[:2]
+        path_text = record[3:]
+        if "R" in status or "C" in status:
+            if index + 1 < len(records):
+                old_path_text = records[index + 1]
+                index += 2
+                if is_sensitive_path(path_text) or is_sensitive_path(old_path_text):
+                    lines.append("[sensitive path omitted]")
+                else:
+                    lines.append(f"{status} {old_path_text} -> {path_text}")
+                continue
+        lines.append("[sensitive path omitted]" if is_sensitive_path(path_text) else record)
+        index += 1
     return "\n".join(lines) or "(clean working tree)"
 
 
